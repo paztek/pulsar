@@ -1,0 +1,9 @@
+{
+  "repos": [],
+  "rules": [
+    { "name": "Build failing",    "when": { "event": "build_failing" }, "leds": ["red"] },
+    { "name": "Review requested", "when": { "event": "needs_review"  }, "leds": ["yellow"] },
+    { "name": "New comments",     "when": { "event": "new_comment"   }, "leds": ["blue"] }
+  ],
+  "allClear": { "leds": ["green"], "notify": false }
+}

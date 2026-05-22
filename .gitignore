@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Node / TypeScript
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local Pulsar config (use mac/config.example.json as a template)
+mac/config.json
+
+# Arduino build artifacts
+build/
+*.hex
+*.elf
+*.bin
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Claude Code per-user state
+.claude/settings.local.json
