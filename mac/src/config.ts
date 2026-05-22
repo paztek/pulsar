@@ -1,8 +1,9 @@
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CompiledRule, Predicate, ResolvedConfig, ledNameToId } from './engine';
-import { EventKind, LedId } from './types';
+import { ResolvedConfig, Rule, ledNameToId } from './engine';
+import { log } from './log';
+import { LedId } from './types';
 
 dotenv.config();
 
@@ -22,24 +23,26 @@ export const config = {
   rulesPath: process.env.CONFIG_PATH || 'config.json',
 };
 
-const VALID_EVENTS: ReadonlySet<EventKind> = new Set(['build_failing', 'needs_review', 'new_comment']);
-
-const DEFAULT_RULES: ResolvedConfig = {
-  rules: [
-    { name: 'Build failing',    when: { events: new Set(['build_failing']) }, leds: [LedId.RED],    notify: true },
-    { name: 'Review requested', when: { events: new Set(['needs_review']) },  leds: [LedId.YELLOW], notify: true },
-    { name: 'New comments',     when: { events: new Set(['new_comment']) },   leds: [LedId.BLUE],   notify: true },
-  ],
-  allClear: { leds: [LedId.GREEN], notify: false },
-  repos: [],
-};
+function defaultRules(): ResolvedConfig {
+  const epoch = new Date(0);
+  return {
+    rules: [
+      { name: '🔴 Build failing',      query: 'is:pr is:open draft:false author:{{username}} status:failure {{repos}}', leds: [LedId.RED],    notify: true, lastChecked: epoch },
+      { name: '👀 Review requested',   query: 'is:pr is:open draft:false review-requested:{{username}} {{repos}}',      leds: [LedId.YELLOW], notify: true, lastChecked: epoch },
+      { name: '💬 Activity on my PRs', query: 'is:pr is:open draft:false author:{{username}} updated:>{{lastChecked}} {{repos}}', leds: [LedId.BLUE], notify: true, lastChecked: epoch },
+    ],
+    allClear: { leds: [LedId.GREEN], notify: false },
+    repos: [],
+  };
+}
 
 export function loadRules(filePath: string = config.rulesPath): ResolvedConfig {
   const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
   if (!fs.existsSync(resolved)) {
-    console.log(`config.json not found at ${resolved}; using built-in defaults`);
-    return DEFAULT_RULES;
+    log(`config.json not found at ${resolved}; using built-in defaults`);
+    return defaultRules();
   }
+  log(`loading rules from ${resolved}`);
 
   let raw: unknown;
   try {
@@ -65,7 +68,8 @@ function validate(raw: unknown, source: string): ResolvedConfig {
     throw new Error(`${source}: "rules" must be an array`);
   }
 
-  const rules: CompiledRule[] = raw.rules.map((rule, i) => compileRule(rule, i, source));
+  const epoch = new Date(0);
+  const rules: Rule[] = raw.rules.map((rule, i) => compileRule(rule, i, source, epoch));
 
   let allClear: ResolvedConfig['allClear'] = null;
   if (raw.allClear !== undefined) {
@@ -85,67 +89,23 @@ function validate(raw: unknown, source: string): ResolvedConfig {
   return { rules, allClear, repos };
 }
 
-function compileRule(rule: unknown, index: number, source: string): CompiledRule {
+function compileRule(rule: unknown, index: number, source: string, epoch: Date): Rule {
   const label = `${source}: rules[${index}]`;
   if (!isObject(rule)) throw new Error(`${label} must be an object`);
 
-  const name = rule.name === undefined ? `rule ${index}` : asString(rule.name, `${label}.name`);
+  const knownKeys = new Set(['name', 'query', 'leds', 'notify']);
+  for (const key of Object.keys(rule)) {
+    if (!knownKeys.has(key)) console.warn(`${label}: unknown key "${key}" — ignoring`);
+  }
+
+  const name = asString(rule.name, `${label}.name`);
+  if (name.trim() === '') throw new Error(`${label}.name must be a non-empty string`);
+  const query = asString(rule.query, `${label}.query`);
+  if (query.trim() === '') throw new Error(`${label}.query must be a non-empty string`);
   const leds = parseLeds(rule.leds, `${label}.leds`);
   const notify = rule.notify === undefined ? true : asBool(rule.notify, `${label}.notify`);
-  const when = parseWhen(rule.when, `${label}.when`);
 
-  return { name, when, leds, notify };
-}
-
-function parseWhen(raw: unknown, label: string): Predicate {
-  if (raw === undefined) return {};
-  if (!isObject(raw)) throw new Error(`${label} must be an object`);
-
-  const knownWhen = new Set(['event', 'repo', 'repoPattern', 'author', 'titleIncludes', 'titlePattern']);
-  for (const key of Object.keys(raw)) {
-    if (!knownWhen.has(key)) console.warn(`${label}: unknown predicate "${key}" — ignoring`);
-  }
-
-  if (raw.repo !== undefined && raw.repoPattern !== undefined) {
-    throw new Error(`${label}: "repo" and "repoPattern" are mutually exclusive`);
-  }
-  if (raw.titleIncludes !== undefined && raw.titlePattern !== undefined) {
-    throw new Error(`${label}: "titleIncludes" and "titlePattern" are mutually exclusive`);
-  }
-
-  const p: Predicate = {};
-
-  if (raw.event !== undefined) {
-    const events = asStringArray(raw.event, `${label}.event`).map((s) => s.toLowerCase());
-    for (const ev of events) {
-      if (!VALID_EVENTS.has(ev as EventKind)) {
-        throw new Error(`${label}.event: "${ev}" is not a valid event (allowed: ${[...VALID_EVENTS].join(', ')})`);
-      }
-    }
-    p.events = new Set(events as EventKind[]);
-  }
-
-  if (raw.repo !== undefined) {
-    p.repos = new Set(asStringArray(raw.repo, `${label}.repo`).map((s) => s.toLowerCase()));
-  }
-
-  if (raw.repoPattern !== undefined) {
-    p.repoPattern = compileRegex(asString(raw.repoPattern, `${label}.repoPattern`), `${label}.repoPattern`);
-  }
-
-  if (raw.author !== undefined) {
-    p.authors = new Set(asStringArray(raw.author, `${label}.author`).map((s) => s.toLowerCase()));
-  }
-
-  if (raw.titleIncludes !== undefined) {
-    p.titleIncludes = asStringArray(raw.titleIncludes, `${label}.titleIncludes`).map((s) => s.toLowerCase());
-  }
-
-  if (raw.titlePattern !== undefined) {
-    p.titlePattern = compileRegex(asString(raw.titlePattern, `${label}.titlePattern`), `${label}.titlePattern`);
-  }
-
-  return p;
+  return { name, query, leds, notify, lastChecked: epoch };
 }
 
 function parseLeds(raw: unknown, label: string): LedId[] {
@@ -160,14 +120,6 @@ function parseLeds(raw: unknown, label: string): LedId[] {
     }
     return id;
   });
-}
-
-function compileRegex(pattern: string, label: string): RegExp {
-  try {
-    return new RegExp(pattern);
-  } catch (e) {
-    throw new Error(`${label}: invalid regex "${pattern}": ${(e as Error).message}`);
-  }
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {

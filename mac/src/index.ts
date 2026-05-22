@@ -1,20 +1,63 @@
 import { ArduinoController } from './serial';
-import { GithubAPIPoller, GithubCLIPoller } from './github';
+import { GithubAPIClient, GithubCLIClient } from './github';
 import { notify } from './notifications';
-import { LedId, Poller } from './types';
+import { log } from './log';
+import { GithubClient, LedId } from './types';
 import { config, loadRules } from './config';
-import { evaluate, titleFor, ResolvedConfig } from './engine';
+import { evaluate, expandQuery, ResolvedConfig, RuleHit } from './engine';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
 
-async function tick(arduino: ArduinoController, github: Poller, rules: ResolvedConfig) {
-  const events = await github.poll();
-  const { ledsOn, notifications } = evaluate(events, rules);
+const JITTER_MIN_MS = 200;
+const JITTER_MAX_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function nextJitter(): number {
+  return JITTER_MIN_MS + Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS);
+}
+
+async function tick(arduino: ArduinoController, github: GithubClient, rules: ResolvedConfig) {
+  log('--- tick ---');
+  const hits: RuleHit[] = [];
+  for (let i = 0; i < rules.rules.length; i++) {
+    const rule = rules.rules[i];
+    const query = expandQuery(rule.query, {
+      username: config.github.username,
+      lastChecked: rule.lastChecked,
+      repos: rules.repos,
+      now: new Date(),
+    });
+
+    let items;
+    try {
+      items = await github.search(query);
+    } catch (e) {
+      log(`rule "${rule.name}" failed: ${(e as Error).message} — skipping tick`);
+      return;
+    }
+    if (items === null) {
+      // Client is backed off; abandon the rest of the tick to avoid stale partial state.
+      return;
+    }
+    rule.lastChecked = new Date();
+    hits.push({ rule, items });
+    log(`  ${rule.name}: ${items.length} match(es)`);
+    for (const it of items) {
+      log(`    @${it.author} ${it.repo} "${it.title}" ${it.url}`);
+    }
+    if (i < rules.rules.length - 1) await sleep(nextJitter());
+  }
+
+  const { ledsOn, notifications } = evaluate(hits, rules);
+  log(`engine: LEDs on = [${[...ledsOn].map((id) => LedId[id]).join(', ') || 'none'}]; notifications = ${notifications.length}`);
 
   await Promise.all(ALL_LEDS.map((id) => arduino.setLed(id, ledsOn.has(id))));
 
-  for (const ev of notifications) {
-    notify(titleFor(ev.kind), `${ev.repo}: ${ev.title}`, ev.url);
+  for (const n of notifications) {
+    notify(n.title, n.message, n.url);
   }
 }
 
@@ -29,19 +72,22 @@ async function main() {
   }
 
   const rules = loadRules();
+  log(`loaded ${rules.rules.length} rule(s); repos scope: ${rules.repos.length === 0 ? '(all)' : rules.repos.join(', ')}`);
 
   const arduino = new ArduinoController();
-  const github: Poller = config.github.poller === 'api'
-    ? new GithubAPIPoller(rules.repos)
-    : new GithubCLIPoller(rules.repos);
+  const github: GithubClient = config.github.poller === 'api'
+    ? new GithubAPIClient()
+    : new GithubCLIClient();
+  log(`client: ${config.github.poller}; user: ${config.github.username}; interval: ${config.poll.intervalMs}ms`);
 
   await arduino.connect();
-  console.log(`Pulsar connected on ${config.serial.port}`);
+  log(`Pulsar connected on ${config.serial.port}`);
 
   await tick(arduino, github, rules);
   const interval = setInterval(() => tick(arduino, github, rules), config.poll.intervalMs);
 
   process.on('SIGINT', async () => {
+    log('SIGINT — shutting down');
     clearInterval(interval);
     await arduino.allOff();
     await arduino.close();

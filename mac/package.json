@@ -5,7 +5,8 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "arduino": "open -a 'Arduino IDE' ../arduino/led_controller/led_controller.ino"
+    "arduino": "open -a 'Arduino IDE' ../arduino/led_controller/led_controller.ino",
+    "postinstall": "node scripts/install-icon.js"
   },
   "dependencies": {
     "@octokit/rest": "^21.0.0",

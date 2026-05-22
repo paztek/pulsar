@@ -5,16 +5,15 @@ export enum LedId {
   GREEN  = 3,  // pin 5
 }
 
-export type EventKind = 'build_failing' | 'needs_review' | 'new_comment';
-
-export interface PrEntry {
+export interface SearchItem {
   title: string;
   url: string;
   repo: string;
   author: string;
-  kind: EventKind;
 }
 
-export interface Poller {
-  poll(): Promise<PrEntry[]>;
+export interface GithubClient {
+  // Returns the search results, or null if the client backed off (e.g. rate-limited).
+  // Callers should treat null as "no info" and skip state updates for the tick.
+  search(query: string): Promise<SearchItem[] | null>;
 }

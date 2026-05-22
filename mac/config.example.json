@@ -1,9 +1,24 @@
 {
-  "repos": [],
+  "repos": [
+    "your-org/your-repo",
+    "your-org/another-repo"
+  ],
   "rules": [
-    { "name": "Build failing",    "when": { "event": "build_failing" }, "leds": ["red"] },
-    { "name": "Review requested", "when": { "event": "needs_review"  }, "leds": ["yellow"] },
-    { "name": "New comments",     "when": { "event": "new_comment"   }, "leds": ["blue"] }
+    {
+      "name": "🔴 Build failing",
+      "query": "is:pr is:open draft:false author:{{username}} status:failure {{repos}}",
+      "leds": ["red"]
+    },
+    {
+      "name": "👀 Review requested",
+      "query": "is:pr is:open draft:false review-requested:{{username}} {{repos}}",
+      "leds": ["yellow"]
+    },
+    {
+      "name": "💬 Activity on my PRs",
+      "query": "is:pr is:open draft:false author:{{username}} updated:>{{lastChecked}} {{repos}}",
+      "leds": ["blue"]
+    }
   ],
   "allClear": { "leds": ["green"], "notify": false }
 }

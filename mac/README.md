@@ -90,41 +90,63 @@ npm run build && npm start
 
 ## Mapping rules — `config.json`
 
-Which events light which LEDs is controlled by `config.json` (next to
-`package.json`). Each rule has an optional predicate (`when`) and a
-required list of `leds` to light when an event matches. Multiple rules
-can target the same LED — the LED is ON if any matching rule fires.
+Each rule is **a name, a GitHub Search query, and the LEDs to light** when
+the query returns one or more results. The rule's name is also used as
+the notification title (include an emoji to taste). One tick runs each
+rule's query in sequence; if any rule matches, its LEDs go on. Multiple
+rules can target the same LED — the LED is ON if any matching rule fires.
 
 ```jsonc
 {
-  "repos": ["earnix/monorepo", "earnix/pulsar"],  // optional; if non-empty, only events on these repos are fetched
+  "repos": ["earnix/monorepo", "earnix/pulsar"],  // optional; injected via {{repos}}
   "rules": [
     {
-      "name": "Hotfix titles flash red + yellow",
-      "when": {
-        "event": "build_failing",       // string | string[]; optional
-        "repo":  "earnix/monorepo",     // string | string[]; optional
-        // "repoPattern":   "^earnix/", // alternative to repo
-        "author": ["alice", "bob"],     // string | string[]; optional
-        "titleIncludes": ["hotfix"]     // string | string[]; optional
-        // "titlePattern":  "^\\[P0\\]" // alternative to titleIncludes
-      },
-      "leds":   ["red", "yellow"],      // required, non-empty
-      "notify": true                    // optional, default true
+      "name": "🔴 Build failing",
+      "query": "is:pr is:open draft:false author:{{username}} status:failure {{repos}}",
+      "leds": ["red"],
+      "notify": true                              // optional, default true
+    },
+    {
+      "name": "👀 Review requested",
+      "query": "is:pr is:open draft:false review-requested:{{username}} {{repos}}",
+      "leds": ["yellow"]
+    },
+    {
+      "name": "💬 Activity on my PRs",
+      "query": "is:pr is:open draft:false author:{{username}} updated:>{{lastChecked}} {{repos}}",
+      "leds": ["blue"]
     }
   ],
   "allClear": { "leds": ["green"], "notify": false }
 }
 ```
 
-Within a rule, all present predicates must match (AND). Across rules,
-results OR on the LED side. `allClear` lights when no rule matched any
-event. Valid `event` values: `build_failing`, `needs_review`,
-`new_comment`. Valid LED names: `red`, `yellow`, `blue`, `green`.
+### Placeholders
 
-Behaviour on a missing file: built-in defaults (which replicate the
-shipped `config.json`) are used. Invalid file: the daemon fails to start
-and prints the offending rule.
+Expanded at query time, on every tick:
+
+| Placeholder      | Value                                                         |
+|------------------|---------------------------------------------------------------|
+| `{{username}}`   | `GITHUB_USERNAME` from `.env`                                 |
+| `{{lastChecked}}`| ISO timestamp of the **last successful poll of this rule** (epoch on first run) |
+| `{{repos}}`      | `repo:a/b repo:c/d` expansion of top-level `repos` (empty if not set) |
+| `{{now}}`        | Current time as ISO timestamp                                 |
+
+`{{lastChecked}}` advances per-rule on each successful poll, so a rule's
+sliding window is independent — a rule that hit a rate limit catches up
+on the next successful poll.
+
+### LEDs
+
+Valid names: `red`, `yellow`, `blue`, `green`. `allClear.leds` lights
+when **no** rule matched any results on this tick. If `allClear` is
+omitted, nothing lights when everything is quiet.
+
+### Failure behaviour
+
+Missing file: built-in defaults (which replicate the shipped
+`config.json`) are used. Invalid file: the daemon fails to start with
+an error pointing at the offending rule.
 
 ## Serial protocol
 

@@ -1,49 +1,54 @@
-import { EventKind, LedId, PrEntry } from './types';
+import { LedId, SearchItem } from './types';
 
-export interface Predicate {
-  events?: Set<EventKind>;
-  repos?: Set<string>;
-  repoPattern?: RegExp;
-  authors?: Set<string>;
-  titleIncludes?: string[];
-  titlePattern?: RegExp;
-}
-
-export interface CompiledRule {
+export interface Rule {
   name: string;
-  when: Predicate;
+  query: string;
   leds: LedId[];
   notify: boolean;
+  lastChecked: Date;  // mutable: advances each time this rule's query succeeds
 }
 
 export interface ResolvedConfig {
-  rules: CompiledRule[];
+  rules: Rule[];
   allClear: { leds: LedId[]; notify: boolean } | null;
   repos: string[];
 }
 
-export interface EngineDecision {
-  ledsOn: Set<LedId>;
-  notifications: PrEntry[];
+export interface RuleHit {
+  rule: Rule;
+  items: SearchItem[];
 }
 
-export function evaluate(events: PrEntry[], config: ResolvedConfig): EngineDecision {
+export interface PreparedNotification {
+  title: string;
+  message: string;
+  url: string;
+}
+
+export interface EngineDecision {
+  ledsOn: Set<LedId>;
+  notifications: PreparedNotification[];
+}
+
+export function evaluate(hits: RuleHit[], config: ResolvedConfig): EngineDecision {
   const ledsOn = new Set<LedId>();
-  const notifications: PrEntry[] = [];
-  const notifiedUrls = new Set<string>();
+  const notifications: PreparedNotification[] = [];
+  const seenUrls = new Set<string>();
   let anyMatched = false;
 
-  for (const event of events) {
-    let shouldNotify = false;
-    for (const rule of config.rules) {
-      if (!matches(event, rule.when)) continue;
-      anyMatched = true;
-      for (const led of rule.leds) ledsOn.add(led);
-      if (rule.notify) shouldNotify = true;
-    }
-    if (shouldNotify && !notifiedUrls.has(event.url)) {
-      notifiedUrls.add(event.url);
-      notifications.push(event);
+  for (const { rule, items } of hits) {
+    if (items.length === 0) continue;
+    anyMatched = true;
+    for (const led of rule.leds) ledsOn.add(led);
+    if (!rule.notify) continue;
+    for (const item of items) {
+      if (seenUrls.has(item.url)) continue;
+      seenUrls.add(item.url);
+      notifications.push({
+        title: rule.name,
+        message: `${item.repo}: ${item.title}`,
+        url: item.url,
+      });
     }
   }
 
@@ -54,17 +59,22 @@ export function evaluate(events: PrEntry[], config: ResolvedConfig): EngineDecis
   return { ledsOn, notifications };
 }
 
-function matches(event: PrEntry, p: Predicate): boolean {
-  if (p.events && !p.events.has(event.kind)) return false;
-  if (p.repos && !p.repos.has(event.repo.toLowerCase())) return false;
-  if (p.repoPattern && !p.repoPattern.test(event.repo)) return false;
-  if (p.authors && !p.authors.has(event.author.toLowerCase())) return false;
-  if (p.titleIncludes) {
-    const t = event.title.toLowerCase();
-    if (!p.titleIncludes.some((s) => t.includes(s))) return false;
-  }
-  if (p.titlePattern && !p.titlePattern.test(event.title)) return false;
-  return true;
+export interface ExpandContext {
+  username: string;
+  lastChecked: Date;
+  repos: string[];
+  now: Date;
+}
+
+export function expandQuery(template: string, ctx: ExpandContext): string {
+  const reposExpansion = ctx.repos.map((r) => `repo:${r}`).join(' ');
+  return template
+    .replace(/\{\{username\}\}/g, ctx.username)
+    .replace(/\{\{lastChecked\}\}/g, ctx.lastChecked.toISOString())
+    .replace(/\{\{repos\}\}/g, reposExpansion)
+    .replace(/\{\{now\}\}/g, ctx.now.toISOString())
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const LED_NAMES: Record<string, LedId> = {
@@ -76,12 +86,4 @@ const LED_NAMES: Record<string, LedId> = {
 
 export function ledNameToId(name: string): LedId | undefined {
   return LED_NAMES[name.toLowerCase()];
-}
-
-export function titleFor(kind: EventKind): string {
-  switch (kind) {
-    case 'needs_review':  return '👀 Review requested';
-    case 'new_comment':   return '💬 New comment';
-    case 'build_failing': return '🔴 Build failing';
-  }
 }

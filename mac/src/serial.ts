@@ -1,5 +1,6 @@
 import { SerialPort } from 'serialport';
 import { config } from './config';
+import { log } from './log';
 import { LedId } from './types';
 
 export class ArduinoController {
@@ -27,6 +28,7 @@ export class ArduinoController {
   setLed(id: LedId, on: boolean): Promise<void> {
     if (this.ledStates[id] === on) return Promise.resolve();
     this.ledStates[id] = on;
+    log(`LED ${LedId[id]} → ${on ? 'ON' : 'OFF'}`);
     return new Promise((resolve, reject) => {
       this.port.write(`SET ${id} ${on ? 1 : 0}\n`, (err) => {
         if (err) reject(err);
