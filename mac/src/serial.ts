@@ -40,6 +40,8 @@ function portKey(path: string): string {
  * setLed/allOff never reject: when the link is down they just update desired
  * state, so a tick is never aborted by a missing or flapping cable.
  */
+export type SerialStatus = 'connecting' | 'connected' | 'disconnected';
+
 export class ArduinoController {
   private port: SerialPort | null = null;
   private desired: boolean[] = [false, false, false, false];
@@ -47,6 +49,20 @@ export class ArduinoController {
   private watchdogTimer: NodeJS.Timeout | null = null;
   private connecting = false;
   private shuttingDown = false;
+  private status: SerialStatus = 'disconnected';
+  private statusCb: ((s: SerialStatus) => void) | null = null;
+
+  /** Subscribe to connectivity changes. Single listener (the Core). */
+  onStatus(cb: (s: SerialStatus) => void): void {
+    this.statusCb = cb;
+  }
+
+  private setStatus(s: SerialStatus): void {
+    if (this.status === s) return;
+    this.status = s;
+    log(`serial: status → ${s}`);
+    this.statusCb?.(s);
+  }
 
   /** One-line snapshot of internal state for every log line. */
   private state(): string {
@@ -92,6 +108,7 @@ export class ArduinoController {
   async close(): Promise<void> {
     log(`serial: close() called ${this.state()}`);
     this.shuttingDown = true;
+    this.setStatus('disconnected');
     this.stopWatchdog();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -118,6 +135,7 @@ export class ArduinoController {
     if (this.port?.isOpen) { log('serial: tryOpen() abort — port already open'); return; }
 
     this.connecting = true;
+    this.setStatus('connecting');
     log(`serial: opening ${config.serial.port} @ ${config.serial.baudRate} baud`);
 
     const port = new SerialPort({
@@ -133,6 +151,7 @@ export class ArduinoController {
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       this.connecting = false;
+      this.setStatus('disconnected');
       log(`serial: open FAILED for ${config.serial.port}: ${err.message}${err.code ? ` (code=${err.code})` : ''}`);
       await this.logPorts('open-failed');
       this.scheduleReconnect();
@@ -168,6 +187,7 @@ export class ArduinoController {
 
     this.port = port;
     this.connecting = false;
+    this.setStatus('connected');
     log(`serial: CONNECTED on ${config.serial.port} ${this.state()}`);
 
     // macOS won't emit close/error on unplug — poll the port list instead.
@@ -203,6 +223,7 @@ export class ArduinoController {
       return;
     }
     log(`serial: link DOWN (${reason}) — tearing down port`);
+    this.setStatus('disconnected');
     this.stopWatchdog();
     const dead = this.port;
     this.port = null;
