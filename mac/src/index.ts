@@ -81,7 +81,7 @@ async function main() {
   log(`client: ${config.github.poller}; user: ${config.github.username}; interval: ${config.poll.intervalMs}ms`);
 
   await arduino.connect();
-  log(`Pulsar connected on ${config.serial.port}`);
+  log(`Pulsar started — driving Arduino on ${config.serial.port} (connecting/retrying in background)`);
 
   await tick(arduino, github, rules);
   const interval = setInterval(() => tick(arduino, github, rules), config.poll.intervalMs);

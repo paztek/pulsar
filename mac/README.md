@@ -157,5 +157,9 @@ SET <ledId:0-3> <state:0|1>\n   →   OK\n
 ```
 
 The Mac side keeps an in-memory mirror of LED state and skips redundant
-writes. There is no resync on reconnect yet — if you unplug the Arduino mid-run,
-restart the daemon.
+writes. The link is self-healing: the daemon connects even if the Arduino is
+plugged in after it starts, and reconnects on its own when the device is
+unplugged and plugged back in (retrying every few seconds). On each successful
+(re)connect it plays a confirmation blink (all LEDs on/off, twice), then — since
+opening the port resets the Arduino to all-off — re-applies the desired LED
+state. No restart needed.

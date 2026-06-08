@@ -53,9 +53,11 @@ Each tick:
    and which events to notify on. Any matching rule lights its LEDs; if **no**
    rule matched, `allClear.leds` light instead. Notifications dedupe by URL.
 3. `ArduinoController.setLed()` writes `SET <id> <0|1>\n` over serial — but only
-   when its in-memory mirror of LED state actually changed, to avoid spamming
-   the bus. There is no resync on reconnect; unplugging the Arduino means
-   restarting the daemon.
+   when the *desired* LED state actually changed, to avoid spamming the bus. The
+   link is self-healing: it connects even if the Arduino appears after startup
+   and reconnects on unplug/replug. `setLed`/`allOff` never reject when the link
+   is down — they only update desired state, which is re-applied on every
+   (re)connect (opening the port resets the board to all-off).
 4. Notification clicks open the captured PR URL.
 
 `SIGINT` turns all LEDs off and closes the port cleanly.
