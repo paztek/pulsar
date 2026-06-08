@@ -135,6 +135,12 @@ Tray menu:
 
 ### 2. Settings (`electron-store`) + migration
 
+> **Implemented (Phase 3) as a hand-rolled JSON store** (`settings.ts`: a
+> `settings.json` in `app.getPath('userData')`) rather than `electron-store`,
+> to stay CommonJS and dependency-free (electron-store v9+ is ESM-only and
+> caused interop friction). Same behavior — schema, migration, `safeStorage`
+> token. Swap to `electron-store` later if richer features are wanted.
+
 Schema (persisted): `githubUsername`, `githubToken` (encrypted via Electron
 `safeStorage`), `poller` (`cli`|`api`), `serialPort`, `pollIntervalMs`, `rules`
 (the existing rule array), `allClear`, `repos`, `mcpEnabled`, `mcpPort`,

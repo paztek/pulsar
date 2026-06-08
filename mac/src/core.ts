@@ -4,7 +4,7 @@ import { GithubAPIClient, GithubCLIClient } from './github';
 import { notify } from './notifications';
 import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
-import { config, loadRules } from './config';
+import { config, getActiveRules } from './config';
 import { evaluate, expandQuery, ResolvedConfig, RuleHit } from './engine';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
@@ -70,7 +70,7 @@ export class Core extends EventEmitter {
 
   constructor() {
     super();
-    this.rules = loadRules();
+    this.rules = getActiveRules();
     this.arduino = new ArduinoController();
     this.arduino.onStatus((s) => {
       this.serialStatus = s;
@@ -98,6 +98,13 @@ export class Core extends EventEmitter {
 
   /** Force an immediate poll (used by tray "Poll now" and the MCP poll_now tool). */
   async pollNow(): Promise<void> {
+    await this.tick();
+  }
+
+  /** Re-read the active rules (after a settings change) and poll immediately. */
+  async reloadRules(): Promise<void> {
+    this.rules = getActiveRules();
+    log(`core: reloaded ${this.rules.rules.length} rule(s)`);
     await this.tick();
   }
 

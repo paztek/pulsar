@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { createCore, startCore } from './index';
+import { loadAndApplySettings } from './settings';
 import { PulsarTray } from './tray';
 import { Core } from './core';
 import { log } from './log';
@@ -21,6 +22,9 @@ if (!gotLock) {
     if (app.dock) app.dock.hide();
     log(`Electron ${process.versions.electron} ready — starting Pulsar`);
     try {
+      // Load settings (migrating from .env/config.json on first run) into the
+      // runtime config before constructing the Core.
+      loadAndApplySettings();
       core = createCore();
       // Attach the tray BEFORE starting so it catches the initial serial-status events.
       tray = new PulsarTray(core);
