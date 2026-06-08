@@ -61,7 +61,7 @@ async function tick(arduino: ArduinoController, github: GithubClient, rules: Res
   }
 }
 
-async function main() {
+export async function startDaemon() {
   if (!config.github.username) {
     console.error('Missing GITHUB_USERNAME in .env');
     process.exit(1);
@@ -95,4 +95,8 @@ async function main() {
   });
 }
 
-main().catch(console.error);
+// Run directly only when launched as a standalone Node process (`npm run dev`/
+// `npm start`). Under Electron, `electron-main.ts` imports and drives startDaemon().
+if (require.main === module) {
+  startDaemon().catch(console.error);
+}

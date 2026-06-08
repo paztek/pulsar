@@ -1,10 +1,14 @@
 {
   "name": "pulsar",
   "version": "0.1.0",
+  "main": "dist/electron-main.js",
   "scripts": {
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "app": "npm run build && electron .",
+    "verify:serial": "electron scripts/verify-serialport.js",
+    "rebuild": "electron-rebuild",
     "arduino": "open -a 'Arduino IDE' ../arduino/led_controller/led_controller.ino",
     "postinstall": "node scripts/install-icon.js"
   },
@@ -15,8 +19,11 @@
     "serialport": "^12.0.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@types/node": "^20.0.0",
     "@types/node-notifier": "^8.0.0",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.0.0"
   }
