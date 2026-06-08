@@ -92,3 +92,9 @@ Each tick:
 The poller is intentionally source-agnostic (rule = name + search query + LEDs).
 Future non-GitHub sources (CI queues, PagerDuty, Linear, calendar) would plug in
 as additional `GithubClient`-style backends behind the same engine.
+
+**Active plan:** converting `mac/` into an Electron menu bar app (status-reflecting
+tray icon), a toggleable MCP server (read + control), and launch-at-login — see
+[`docs/plans/electron-menubar-mcp.md`](docs/plans/electron-menubar-mcp.md). The
+existing `engine.ts`/`github.ts`/`serial.ts` are reused as the Core in the Electron
+main process; `config.ts` is replaced by an `electron-store` settings layer.
