@@ -2,6 +2,7 @@ import { app, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import { Core } from './core';
 import { SerialStatus } from './serial';
+import { showWindow } from './window';
 import { log } from './log';
 
 const ICON_FILE: Record<SerialStatus, string> = {
@@ -80,6 +81,7 @@ export class PulsarTray {
         { label: lit.length ? `LEDs: ${lit.join(', ')}` : 'LEDs: none', enabled: false },
         { label: `Last poll: ${lastPoll}`, enabled: false },
         { type: 'separator' },
+        { label: 'Open Pulsar…', click: () => showWindow() },
         { label: 'Poll now', click: () => void this.core.pollNow() },
         { type: 'separator' },
         { label: 'Quit Pulsar', click: () => app.quit() },

@@ -108,6 +108,38 @@ export class Core extends EventEmitter {
     await this.tick();
   }
 
+  private setPollInterval(ms: number): void {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = setInterval(() => void this.tick(), ms);
+      log(`core: poll interval → ${ms}ms`);
+    }
+  }
+
+  private rebuildClient(): void {
+    this.github = config.github.poller === 'api' ? new GithubAPIClient() : new GithubCLIClient();
+    log(`core: github client → ${config.github.poller}`);
+  }
+
+  private async reconnectSerial(): Promise<void> {
+    log('core: reconnecting serial (settings change)');
+    await this.arduino.close();
+    await this.arduino.connect();
+  }
+
+  /**
+   * Apply settings already written to the runtime config (by the store) to the
+   * running Core. Reconnects serial only when the port actually changed, to
+   * avoid a disruptive blink on every save.
+   */
+  async applySettings(opts: { reconnectSerial: boolean }): Promise<void> {
+    this.rebuildClient();
+    this.setPollInterval(config.poll.intervalMs);
+    this.rules = getActiveRules();
+    if (opts.reconnectSerial) await this.reconnectSerial();
+    await this.tick();
+  }
+
   getSnapshot(): Snapshot {
     return {
       serial: this.serialStatus,

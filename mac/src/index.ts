@@ -2,16 +2,12 @@ import { Core } from './core';
 import { config } from './config';
 import { log } from './log';
 
-/** Validate env and construct a Core (does not connect or start polling yet). */
+/**
+ * Construct a Core (does not connect or start polling yet). Electron uses this
+ * directly after loading settings; missing config is handled by the GUI rather
+ * than a hard exit.
+ */
 export function createCore(): Core {
-  if (!config.github.username) {
-    console.error('Missing GITHUB_USERNAME in .env');
-    process.exit(1);
-  }
-  if (config.github.poller === 'api' && !config.github.token) {
-    console.error('GITHUB_POLLER=api requires GITHUB_TOKEN in .env');
-    process.exit(1);
-  }
   return new Core();
 }
 
@@ -33,6 +29,14 @@ export async function startCore(core: Core): Promise<void> {
  * must subscribe before the first connect to catch the initial status events).
  */
 export async function startDaemon(): Promise<Core> {
+  if (!config.github.username) {
+    console.error('Missing GITHUB_USERNAME in .env');
+    process.exit(1);
+  }
+  if (config.github.poller === 'api' && !config.github.token) {
+    console.error('GITHUB_POLLER=api requires GITHUB_TOKEN in .env');
+    process.exit(1);
+  }
   const core = createCore();
   await startCore(core);
   return core;

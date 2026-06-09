@@ -1,6 +1,8 @@
 import { app } from 'electron';
 import { createCore, startCore } from './index';
 import { loadAndApplySettings } from './settings';
+import { registerIpc } from './ipc';
+import { showWindow } from './window';
 import { PulsarTray } from './tray';
 import { Core } from './core';
 import { log } from './log';
@@ -26,9 +28,12 @@ if (!gotLock) {
       // runtime config before constructing the Core.
       loadAndApplySettings();
       core = createCore();
-      // Attach the tray BEFORE starting so it catches the initial serial-status events.
+      // Attach the tray and IPC BEFORE starting so they catch the initial events.
       tray = new PulsarTray(core);
+      registerIpc(core);
       await startCore(core);
+      // Dev affordance: auto-open the window (no need to click the tray).
+      if (process.env.PULSAR_OPEN === '1') showWindow();
     } catch (e) {
       log(`startup failed: ${(e as Error).message}`);
       app.quit();
@@ -41,7 +46,10 @@ if (!gotLock) {
     e.preventDefault();
     quitting = true;
     log('quitting — turning LEDs off and closing serial');
-    core.stop().finally(() => app.exit(0));
+    core.stop().finally(() => {
+      tray?.destroy();
+      app.exit(0);
+    });
   });
 
   // Stay resident with no windows open — this is a background menu bar app.

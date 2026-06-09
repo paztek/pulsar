@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;"
+    />
+    <title>Pulsar</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-status="disconnected">
+    <header class="hero">
+      <span class="hero__dot" aria-hidden="true"></span>
+      <div class="hero__text">
+        <h1>Pulsar</h1>
+        <p id="conn-label">—</p>
+      </div>
+      <button id="poll-now" class="ghost" type="button">Poll now</button>
+    </header>
+
+    <section class="panel" aria-labelledby="status-h">
+      <h2 id="status-h">Status</h2>
+      <div class="leds" id="leds" role="img" aria-label="LED states">
+        <span class="led led--red" data-led="red"></span>
+        <span class="led led--yellow" data-led="yellow"></span>
+        <span class="led led--blue" data-led="blue"></span>
+        <span class="led led--green" data-led="green"></span>
+      </div>
+      <p class="meta">Last poll: <span id="last-poll">—</span></p>
+      <ul id="matches" class="matches"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="settings-h">
+      <h2 id="settings-h">Settings</h2>
+      <form id="settings-form" autocomplete="off">
+        <label>GitHub username
+          <input id="f-username" type="text" spellcheck="false" />
+        </label>
+
+        <label>GitHub token
+          <input id="f-token" type="password" placeholder="leave blank to keep" />
+        </label>
+
+        <div class="row">
+          <label>Poller
+            <select id="f-poller">
+              <option value="cli">cli (gh)</option>
+              <option value="api">api (token)</option>
+            </select>
+          </label>
+          <label>Poll interval (s)
+            <input id="f-interval" type="number" min="10" step="5" />
+          </label>
+        </div>
+
+        <label>Serial port
+          <select id="f-port"></select>
+        </label>
+
+        <label>Rules (JSON)
+          <textarea id="f-rules" rows="9" spellcheck="false"></textarea>
+        </label>
+
+        <div class="actions">
+          <button id="save" class="primary" type="submit">Save</button>
+          <span id="toast" class="toast" role="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
