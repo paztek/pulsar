@@ -5,7 +5,7 @@ import { notify } from './notifications';
 import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
 import { config, getActiveRules } from './config';
-import { evaluate, expandQuery, ResolvedConfig, RuleHit } from './engine';
+import { evaluate, expandQuery, ledNameToId, ResolvedConfig, RuleHit } from './engine';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
 
@@ -67,6 +67,7 @@ export class Core extends EventEmitter {
   private leds: LedState = { red: false, yellow: false, blue: false, green: false };
   private lastTickAt: string | null = null;
   private ruleHits: RuleHitSummary[] = [];
+  private mcpInfo: { enabled: boolean; url: string | null } = { enabled: false, url: null };
 
   constructor() {
     super();
@@ -147,8 +148,26 @@ export class Core extends EventEmitter {
       leds: { ...this.leds },
       lastTickAt: this.lastTickAt,
       ruleHits: this.ruleHits.map((h) => ({ rule: h.rule, items: h.items })),
-      mcp: { enabled: false, url: null },
+      mcp: { ...this.mcpInfo },
     };
+  }
+
+  /** Update reported MCP state and refresh subscribers (tray/window). */
+  setMcpInfo(info: { enabled: boolean; url: string | null }): void {
+    this.mcpInfo = info;
+    this.emit('tick', this.getSnapshot());
+  }
+
+  /** Manually drive one LED (transient — the next tick re-asserts rule state). Used by MCP. */
+  async setLed(name: keyof LedState, on: boolean): Promise<void> {
+    const id = ledNameToId(name);
+    if (id === undefined) return;
+    await this.arduino.setLed(id, on);
+  }
+
+  /** Run the connection-confirmation blink. Used by the MCP blink tool. */
+  async blink(): Promise<void> {
+    await this.arduino.blink();
   }
 
   private async tick(): Promise<void> {

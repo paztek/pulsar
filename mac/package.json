@@ -14,6 +14,7 @@
     "postinstall": "node scripts/install-icon.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^21.0.0",
     "dotenv": "^16.0.0",
     "node-notifier": "^10.0.0",

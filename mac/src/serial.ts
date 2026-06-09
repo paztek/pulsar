@@ -202,6 +202,11 @@ export class ArduinoController {
     log('serial: resync complete');
   }
 
+  /** Public: run the confirmation blink on demand (e.g. the MCP blink tool). */
+  async blink(): Promise<void> {
+    await this.confirmBlink();
+  }
+
   /** Flash all LEDs on/off twice (raw writes, independent of desired state). */
   private async confirmBlink(): Promise<void> {
     log('serial: confirmation blink start');

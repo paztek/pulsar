@@ -22,11 +22,15 @@ const LED_LABEL: Record<string, string> = {
  * Menu bar presence. The icon is a colored dot reflecting serial connectivity;
  * the menu shows live status and offers Poll now / Quit. Subscribes to Core.
  */
+export interface TrayCallbacks {
+  onToggleMcp: () => void;
+}
+
 export class PulsarTray {
   private tray: Tray;
   private status: SerialStatus = 'disconnected';
 
-  constructor(private core: Core) {
+  constructor(private core: Core, private cb: TrayCallbacks) {
     this.status = core.getSnapshot().serial;
     this.tray = new Tray(this.icon(this.status));
     this.render();
@@ -83,6 +87,12 @@ export class PulsarTray {
         { type: 'separator' },
         { label: 'Open Pulsar…', click: () => showWindow() },
         { label: 'Poll now', click: () => void this.core.pollNow() },
+        {
+          label: snap.mcp.enabled ? `MCP server: on — ${snap.mcp.url}` : 'MCP server: off',
+          type: 'checkbox',
+          checked: snap.mcp.enabled,
+          click: () => this.cb.onToggleMcp(),
+        },
         { type: 'separator' },
         { label: 'Quit Pulsar', click: () => app.quit() },
       ]),

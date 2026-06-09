@@ -4,14 +4,15 @@ import { loadAndApplySettings } from './settings';
 import { registerIpc } from './ipc';
 import { showWindow } from './window';
 import { PulsarTray } from './tray';
+import { McpManager } from './mcp/server';
 import { Core } from './core';
 import { log } from './log';
 
-// Phase 2: menu bar agent with a tray icon reflecting serial connectivity.
-// Settings window and MCP server arrive in later phases.
+// Menu bar agent: tray icon, settings/status window, and a toggleable MCP server.
 
 let tray: PulsarTray | null = null;
 let core: Core | null = null;
+let mcp: McpManager | null = null;
 let quitting = false;
 
 const gotLock = app.requestSingleInstanceLock();
@@ -26,12 +27,21 @@ if (!gotLock) {
     try {
       // Load settings (migrating from .env/config.json on first run) into the
       // runtime config before constructing the Core.
-      loadAndApplySettings();
+      const settings = loadAndApplySettings();
       core = createCore();
+      mcp = new McpManager(core);
       // Attach the tray and IPC BEFORE starting so they catch the initial events.
-      tray = new PulsarTray(core);
+      tray = new PulsarTray(core, {
+        onToggleMcp: () => void mcp!.setEnabled(!mcp!.isRunning()),
+      });
       registerIpc(core);
       await startCore(core);
+
+      // Honor persisted state (or the dev flag) without re-persisting; only the
+      // tray toggle calls setEnabled() to write the flag.
+      if (settings.mcpEnabled || process.env.PULSAR_MCP === '1') {
+        await mcp.start();
+      }
       // Dev affordance: auto-open the window (no need to click the tray).
       if (process.env.PULSAR_OPEN === '1') showWindow();
     } catch (e) {
@@ -40,16 +50,18 @@ if (!gotLock) {
     }
   });
 
-  // Turn the LEDs off and close the serial port before exiting.
+  // Turn the LEDs off, stop the MCP server, and close serial before exiting.
   app.on('before-quit', (e) => {
     if (quitting || !core) return;
     e.preventDefault();
     quitting = true;
-    log('quitting — turning LEDs off and closing serial');
-    core.stop().finally(() => {
-      tray?.destroy();
-      app.exit(0);
-    });
+    log('quitting — turning LEDs off, stopping MCP, closing serial');
+    Promise.resolve(mcp?.stop())
+      .then(() => core!.stop())
+      .finally(() => {
+        tray?.destroy();
+        app.exit(0);
+      });
   });
 
   // Stay resident with no windows open — this is a background menu bar app.
