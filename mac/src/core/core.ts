@@ -5,7 +5,7 @@ import { notify } from '../serial/notifications';
 import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
 import { config, getActiveRules } from './config';
-import { ledNameToId, ResolvedConfig } from './engine';
+import { ResolvedConfig } from './engine';
 import { aggregateLeds, isActive, notificationFor, PullSource, PushSource, Signal } from '../sources/sources';
 import { GithubSource } from '../sources/github/github-source';
 
@@ -200,13 +200,6 @@ export class Core extends EventEmitter {
   setMcpInfo(info: { enabled: boolean; url: string | null }): void {
     this.mcpInfo = info;
     this.emit('tick', this.getSnapshot());
-  }
-
-  /** Manually drive one LED (transient — the next tick re-asserts rule state). Used by MCP. */
-  async setLed(name: keyof LedState, on: boolean): Promise<void> {
-    const id = ledNameToId(name);
-    if (id === undefined) return;
-    await this.arduino.setLed(id, on);
   }
 
   /** Run the connection-confirmation blink. Used by the MCP blink tool. */

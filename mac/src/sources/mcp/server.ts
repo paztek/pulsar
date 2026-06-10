@@ -86,11 +86,12 @@ function buildServer(core: Core, push: McpPushSource): unknown {
 
   server.tool(
     'set_led',
-    'Force one LED on/off directly (raw, transient — the next recompute re-asserts source-driven state). For semantic status use raise_signal instead.',
-    { led: LED_ENUM, on: z.boolean() },
-    async (a: { led: 'red' | 'yellow' | 'blue' | 'green'; on: boolean }) => {
-      await core.setLed(a.led, a.on);
-      return ok(`LED ${a.led} → ${a.on ? 'on' : 'off'}`);
+    'Turn one LED on or off. Optionally pass duration_seconds — the app keeps it on for that long, then turns it back off automatically (no follow-up call needed). Use for direct control like "turn the blue LED on for 5 seconds". For multi-LED status with a title/notification, use raise_signal.',
+    { led: LED_ENUM, on: z.boolean(), duration_seconds: z.number().int().positive().optional() },
+    async (a: { led: 'red' | 'yellow' | 'blue' | 'green'; on: boolean; duration_seconds?: number }) => {
+      push.setLed(a.led, a.on, a.duration_seconds);
+      const dur = a.on && a.duration_seconds ? ` for ${a.duration_seconds}s` : '';
+      return ok(`LED ${a.led} → ${a.on ? 'on' : 'off'}${dur}`);
     },
   );
 

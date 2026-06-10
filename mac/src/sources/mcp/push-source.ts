@@ -70,6 +70,39 @@ export class McpPushSource implements PushSource {
     return existed;
   }
 
+  /**
+   * Direct LED control as a stable per-LED override: `on` lights it (optionally
+   * for `ttlSeconds`, after which the app reverts it); `off` clears the override.
+   * Repeated calls for the same LED replace the previous one.
+   */
+  setLed(led: string, on: boolean, ttlSeconds?: number): { id: string; expiresAt?: number } | null {
+    const id = `led:${led}`;
+    if (!on) {
+      if (this.signals.delete(id)) {
+        log(`mcp-push: cleared ${led}`);
+        this.scheduleExpiry();
+        this.onChange();
+      }
+      return null;
+    }
+    const ledId = ledNameToId(led);
+    if (ledId === undefined) return null;
+    const expiresAt = ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined;
+    this.signals.set(id, {
+      id,
+      source: 'mcp',
+      group: `${led} (manual)`,
+      title: `${led} on`,
+      leds: [ledId],
+      notify: false,
+      expiresAt,
+    });
+    log(`mcp-push: set ${led} on${ttlSeconds ? ` for ${ttlSeconds}s` : ''}`);
+    this.scheduleExpiry();
+    this.onChange();
+    return { id, expiresAt };
+  }
+
   list(): Signal[] {
     this.prune();
     return [...this.signals.values()];
