@@ -1,5 +1,5 @@
-import { LedId } from './types';
-import { Rule } from './engine';
+import { LedId } from '../core/types';
+import { Rule } from '../core/engine';
 
 /** Context a pull source needs to expand its rules (currently GitHub-shaped). */
 export interface PollContext {

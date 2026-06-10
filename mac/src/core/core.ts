@@ -1,13 +1,13 @@
 import { EventEmitter } from 'events';
-import { ArduinoController, SerialStatus } from './serial';
-import { GithubAPIClient, GithubCLIClient } from './github';
-import { notify } from './notifications';
+import { ArduinoController, SerialStatus } from '../serial/serial';
+import { GithubAPIClient, GithubCLIClient } from '../sources/github/client';
+import { notify } from '../serial/notifications';
 import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
 import { config, getActiveRules } from './config';
 import { ledNameToId, ResolvedConfig } from './engine';
-import { aggregateLeds, isActive, notificationFor, PullSource, PushSource, Signal } from './sources';
-import { GithubSource } from './github-source';
+import { aggregateLeds, isActive, notificationFor, PullSource, PushSource, Signal } from '../sources/sources';
+import { GithubSource } from '../sources/github/github-source';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
 

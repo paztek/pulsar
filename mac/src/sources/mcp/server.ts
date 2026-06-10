@@ -1,11 +1,11 @@
 import { createServer, IncomingMessage, Server as HttpServer } from 'http';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
-import { Core } from '../core';
-import { getSettings, updateSettings } from '../settings';
+import { Core } from '../../core/core';
+import { getSettings, updateSettings } from '../../core/settings';
 import { McpPushSource } from './push-source';
-import { LedId } from '../types';
-import { log } from '../log';
+import { LedId } from '../../core/types';
+import { log } from '../../core/log';
 
 // The MCP SDK ships a CJS build but uses a package "exports" map that classic TS
 // moduleResolution doesn't read, so require() it (typed as any) rather than import.

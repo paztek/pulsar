@@ -1,5 +1,5 @@
 import { exec } from 'child_process';
-import { log } from './log';
+import { log } from '../core/log';
 
 // Under Electron we use the native Notification API (no bundled binary, so it
 // survives asar packaging). The standalone path (npm run dev, pure Node) falls

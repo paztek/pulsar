@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron';
 import * as path from 'path';
-import { log } from './log';
+import { log } from '../../core/log';
 
 // The settings/status window. Created lazily and hidden (not destroyed) on close
 // so the menu bar app stays resident and reopening is instant.

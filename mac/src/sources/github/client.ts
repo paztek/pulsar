@@ -1,9 +1,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { Octokit } from '@octokit/rest';
-import { config } from './config';
-import { log } from './log';
-import { GithubClient, SearchItem } from './types';
+import { config } from '../../core/config';
+import { log } from '../../core/log';
+import { GithubClient, SearchItem } from '../../core/types';
 
 const execFileAsync = promisify(execFile);
 

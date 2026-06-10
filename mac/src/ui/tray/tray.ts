@@ -1,9 +1,9 @@
 import { app, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
-import { Core } from './core';
-import { SerialStatus } from './serial';
-import { showWindow } from './window';
-import { log } from './log';
+import { Core } from '../../core/core';
+import { SerialStatus } from '../../serial/serial';
+import { showWindow } from '../window/window';
+import { log } from '../../core/log';
 
 const ICON_FILE: Record<SerialStatus, string> = {
   connected: 'connected.png',
@@ -65,7 +65,7 @@ export class PulsarTray {
   private icon(status: SerialStatus): Electron.NativeImage {
     // @2x variants are picked up automatically for retina displays.
     return nativeImage.createFromPath(
-      path.join(__dirname, '..', 'assets', 'tray', ICON_FILE[status]),
+      path.join(__dirname, '..', '..', '..', 'assets', 'tray', ICON_FILE[status]),
     );
   }
 

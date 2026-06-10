@@ -1,9 +1,9 @@
 import { ipcMain } from 'electron';
 import { SerialPort } from 'serialport';
-import { Core } from './core';
-import { getSettings, updateSettings, PulsarSettings, SettingsPatch } from './settings';
+import { Core } from '../../core/core';
+import { getSettings, updateSettings, PulsarSettings, SettingsPatch } from '../../core/settings';
 import { getWindow } from './window';
-import { log } from './log';
+import { log } from '../../core/log';
 
 /** Settings view sent to the renderer — the token is never exposed, only whether one is set. */
 function redact(s: PulsarSettings) {

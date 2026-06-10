@@ -1,7 +1,7 @@
-import { GithubClient } from './types';
-import { Rule, expandQuery } from './engine';
-import { PullSource, PollContext, Signal } from './sources';
-import { log } from './log';
+import { GithubClient } from '../../core/types';
+import { Rule, expandQuery } from '../../core/engine';
+import { PullSource, PollContext, Signal } from '../sources';
+import { log } from '../../core/log';
 
 const JITTER_MIN_MS = 200;
 const JITTER_MAX_MS = 500;

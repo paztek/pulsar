@@ -1,6 +1,6 @@
 import { PushSource, Signal } from './sources';
-import { LedId } from './types';
-import { log } from './log';
+import { LedId } from '../core/types';
+import { log } from '../core/log';
 
 /**
  * Dev-only push source (enabled with PULSAR_TEST_PUSH=1). Raises a BLUE signal a

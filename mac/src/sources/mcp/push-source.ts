@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 import { PushSource, Signal } from '../sources';
-import { ledNameToId } from '../engine';
-import { LedId } from '../types';
-import { log } from '../log';
+import { ledNameToId } from '../../core/engine';
+import { LedId } from '../../core/types';
+import { log } from '../../core/log';
 
 export interface RaiseInput {
   leds: string[];

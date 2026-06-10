@@ -1,6 +1,6 @@
 import { app } from 'electron';
-import { updateSettings } from './settings';
-import { log } from './log';
+import { updateSettings } from '../core/settings';
+import { log } from '../core/log';
 
 // Launch-at-login, backed by the OS login item. The persisted setting is the
 // source of truth; we reconcile the OS item to it on boot.

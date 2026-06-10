@@ -33,23 +33,40 @@ npm run arduino          # open the .ino in Arduino IDE
 Dev affordance env vars for `npm run app`: `PULSAR_OPEN=1` auto-opens the window,
 `PULSAR_MCP=1` starts the MCP server.
 
-There is no test suite, linter, or CI. `engine.ts` (`evaluate`, `expandQuery`)
-and `rules.ts` (`resolveRules`) are pure and the natural place to add unit tests.
+There is no test suite, linter, or CI. The pure modules — `sources.ts`
+(`aggregateLeds`), `rules.ts` (`resolveRules`), `engine.ts` (`expandQuery`) — are
+the natural place to add unit tests.
 
 Flash the firmware by opening `arduino/led_controller/led_controller.ino` in the
 Arduino IDE and uploading to an Uno R3 or MKR Zero.
+
+## Source layout (`src/`)
+
+Grouped by concern; `dist/` mirrors this tree.
+
+```
+electron-main.ts          # Electron entry (package.json "main")
+core/      core.ts launcher.ts config.ts settings.ts rules.ts engine.ts types.ts log.ts
+ui/        login.ts  tray/tray.ts  window/{window,preload,ipc}.ts  window/renderer/*
+sources/   sources.ts test-push.ts  github/{github-source,client}.ts  mcp/{server,push-source}.ts
+serial/    serial.ts notifications.ts
+```
+
+Path notes: `ui/tray/tray.ts` loads icons from `../../../assets/tray`;
+`ui/window/window.ts` loads the renderer/preload from its own dir; the build
+copies `renderer/*.{html,css}` to `dist/ui/window/renderer/` (`copy-renderer.js`).
 
 ## Two entry points (important)
 
 - **Electron app** — `electron-main.ts` (package.json `main`). Loads settings,
   builds the `Core`, attaches tray + IPC + MCP, then starts polling.
-- **Standalone daemon** — `index.ts`'s `startDaemon()` runs only when launched as
-  a plain Node process (`require.main === module`), used by `npm run dev`/`start`.
-  It reads `.env` + `config.json` directly and has no tray/window/MCP.
+- **Standalone daemon** — `core/launcher.ts`'s `startDaemon()` runs only when
+  launched as a plain Node process (`require.main === module`), used by
+  `npm run dev`/`start`. Reads `.env` + `config.json`; no tray/window/MCP.
 
-`index.ts` exposes `createCore()` / `startCore()` so Electron can attach the tray
-and IPC **between** construction and the first connect (the tray must subscribe
-before connect to catch the initial status events).
+`core/launcher.ts` exposes `createCore()` / `startCore()` so Electron can attach
+the tray and IPC **between** construction and the first connect (the tray must
+subscribe before connect to catch the initial status events).
 
 ## Configuration & the settings store
 
@@ -66,8 +83,8 @@ There are **two config sources**, by entry point:
   Note: macOS's case-insensitive FS means the dev (`pulsar`) and packaged
   (`Pulsar`) userData dirs are the **same** settings file.
 
-`config.ts` holds the runtime `config` object the rest of the app reads
-(`github.ts`, `serial.ts`, `core.ts`). `getActiveRules()` returns the store's
+`config.ts` holds the runtime `config` object the rest of the app reads (the
+GitHub client, `serial.ts`, `core.ts`). `getActiveRules()` returns the store's
 rules when set (Electron), else file-loaded rules (standalone).
 
 **Two GitHub backends**, selected by `poller` (default `cli`):
@@ -92,13 +109,13 @@ Everything that can light a LED is an **event source** producing **`Signal`s**
 ("something needs attention"; carries `leds`, `notify`, optional `expiresAt`).
 See `sources.ts`. Two kinds:
 
-- **`PullSource`** — polled on the timer. `GithubSource` (`github-source.ts`) is
+- **`PullSource`** — polled on the timer. `GithubSource` (`sources/github/github-source.ts`) is
   the only one today: it owns query expansion (`expandQuery`), the per-rule
   sliding window (`lastChecked`), inter-rule jitter, and rate-limit backoff,
   returning `Signal[]` or `null` (backed off).
 - **`PushSource`** — runs continuously and owns its signal set with TTL expiry;
   calls `onChange()` to trigger re-aggregation. `McpPushSource`
-  (`mcp/push-source.ts`) lets an agent `raise`/`clear` semantic signals.
+  (`sources/mcp/push-source.ts`) lets an agent `raise`/`clear` semantic signals.
 
 `Core.recompute()` is the **single writer**: it unions every source's active
 signals (`collectSignals`), folds them to effective LED state
@@ -114,19 +131,17 @@ backed-off source keeps its last set) then calls `recompute()`. Push sources cal
 
 ### Electron process model
 
-- **Main process**: `electron-main.ts` (lifecycle, single-instance lock,
-  `dock.hide()`, quit → LEDs off + MCP stop), `core.ts`, `sources.ts`,
-  `github-source.ts`, `tray.ts`, `settings.ts`, `login.ts`, `ipc.ts`, `window.ts`,
-  `mcp/server.ts`, `mcp/push-source.ts`.
-- **Renderer**: `renderer/` — a sandboxed browser script (`contextIsolation: true`,
+- **Main process**: the entry plus everything under `core/`, `sources/`,
+  `serial/`, and `ui/` (tray, window, ipc, login) — see Source layout above.
+- **Renderer**: `ui/window/renderer/` — a sandboxed browser script (`contextIsolation: true`,
   `nodeIntegration: false`, strict CSP). It talks to main **only** through the
   `preload.ts` `contextBridge` (`window.pulsar`). `renderer.ts` must stay
   import-free so it compiles to a plain `<script>`; `index.html`/`styles.css` are
-  copied to `dist/renderer/` by the build.
+  copied to `dist/ui/window/renderer/` by the build.
 - **IPC** (`ipc.ts`): `getSnapshot`/`getSettings`/`updateSettings`/
   `listSerialPorts`/`pollNow`, plus live `pulsar:snapshot` pushes on Core events.
   The token is **redacted** before crossing to the renderer.
-- **MCP** (`mcp/server.ts`): a toggleable Streamable-HTTP server on
+- **MCP** (`sources/mcp/server.ts`): a toggleable Streamable-HTTP server on
   `127.0.0.1:<mcpPort>` (stateful sessions). Resources `pulsar://status|events|config`
   (token redacted). Tools: **semantic** `raise_signal`/`clear_signal`/`list_signals`
   (drive the push source — compose with other sources, optional TTL) and **control**

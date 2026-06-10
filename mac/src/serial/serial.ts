@@ -1,7 +1,7 @@
 import { SerialPort } from 'serialport';
-import { config } from './config';
-import { log } from './log';
-import { LedId } from './types';
+import { config } from '../core/config';
+import { log } from '../core/log';
+import { LedId } from '../core/types';
 
 const RECONNECT_DELAY_MS = 3000;
 // macOS doesn't reliably emit close/error on unplug, so we poll the port list.

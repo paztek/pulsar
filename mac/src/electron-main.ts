@@ -1,14 +1,14 @@
 import { app } from 'electron';
-import { createCore, startCore } from './index';
-import { loadAndApplySettings } from './settings';
-import { registerIpc } from './ipc';
-import { showWindow } from './window';
-import { isLaunchAtLogin, setLaunchAtLogin, reconcileLaunchAtLogin } from './login';
-import { PulsarTray } from './tray';
-import { McpManager } from './mcp/server';
-import { TestPushSource } from './test-push';
-import { Core } from './core';
-import { log } from './log';
+import { createCore, startCore } from './core/launcher';
+import { loadAndApplySettings } from './core/settings';
+import { registerIpc } from './ui/window/ipc';
+import { showWindow } from './ui/window/window';
+import { isLaunchAtLogin, setLaunchAtLogin, reconcileLaunchAtLogin } from './ui/login';
+import { PulsarTray } from './ui/tray/tray';
+import { McpManager } from './sources/mcp/server';
+import { TestPushSource } from './sources/test-push';
+import { Core } from './core/core';
+import { log } from './core/log';
 
 // Menu bar agent: tray icon, settings/status window, and a toggleable MCP server.
 
