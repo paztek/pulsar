@@ -12,6 +12,7 @@
     "pack": "npm run build && electron-builder --mac --dir",
     "dist": "npm run build && electron-builder --mac",
     "icons": "node scripts/gen-tray-icons.js",
+    "icon:app": "node scripts/gen-app-icon.js ../docs/logo.png assets/pulsar.icns",
     "verify:serial": "electron scripts/verify-serialport.js",
     "rebuild": "electron-rebuild",
     "arduino": "open -a 'Arduino IDE' ../arduino/led_controller/led_controller.ino",
