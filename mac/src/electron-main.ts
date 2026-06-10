@@ -36,7 +36,6 @@ if (!gotLock) {
       mcp = new McpManager(core);
       // Attach the tray and IPC BEFORE starting so they catch the initial events.
       tray = new PulsarTray(core, {
-        onToggleMcp: () => void mcp!.setEnabled(!mcp!.isRunning()),
         onToggleLaunchAtLogin: () => {
           setLaunchAtLogin(!isLaunchAtLogin());
           tray?.refresh();
@@ -46,11 +45,8 @@ if (!gotLock) {
       registerIpc(core);
       await startCore(core);
 
-      // Honor persisted state (or the dev flag) without re-persisting; only the
-      // tray toggle calls setEnabled() to write the flag.
-      if (settings.mcpEnabled || process.env.PULSAR_MCP === '1') {
-        await mcp.start();
-      }
+      // The MCP server is always on — start it once the Core is up.
+      await mcp.start();
       // Dev: exercise the push/onChange path without a real push source.
       if (process.env.PULSAR_TEST_PUSH === '1') core.addPushSource(new TestPushSource());
       // Dev affordance: auto-open the window (no need to click the tray).

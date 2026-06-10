@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Pulsar is a physical GitHub status light. A macOS **menu bar Electron app**
 (`mac/`) polls GitHub on a timer, drives 4 LEDs on an Arduino over USB serial
-(`arduino/`), and fires clickable notifications. It exposes a toggleable **MCP
+(`arduino/`), and fires clickable notifications. It exposes an always-on **MCP
 server** and can launch at login. The two halves talk over a tiny plaintext
 serial protocol.
 
@@ -30,8 +30,8 @@ npm run verify:mcp       # node scripts/verify-mcp.js — exercise the running M
 npm run arduino          # open the .ino in Arduino IDE
 ```
 
-Dev affordance env vars for `npm run app`: `PULSAR_OPEN=1` auto-opens the window,
-`PULSAR_MCP=1` starts the MCP server.
+Dev affordance env vars for `npm run app`: `PULSAR_OPEN=1` auto-opens the window.
+(The MCP server is always on — no flag needed.)
 
 There is no test suite, linter, or CI. The pure modules — `sources.ts`
 (`aggregateLeds`), `rules.ts` (`resolveRules`), `engine.ts` (`expandQuery`) — are
@@ -141,8 +141,8 @@ backed-off source keeps its last set) then calls `recompute()`. Push sources cal
 - **IPC** (`ipc.ts`): `getSnapshot`/`getSettings`/`updateSettings`/
   `listSerialPorts`/`pollNow`, plus live `pulsar:snapshot` pushes on Core events.
   The token is **redacted** before crossing to the renderer.
-- **MCP** (`sources/mcp/server.ts`): a toggleable Streamable-HTTP server on
-  `127.0.0.1:<mcpPort>` (stateful sessions). Resources `pulsar://status|events|config`
+- **MCP** (`sources/mcp/server.ts`): an always-on Streamable-HTTP server on
+  `127.0.0.1:<mcpPort>` (stateful sessions), started at launch. Resources `pulsar://status|events|config`
   (token redacted). Tools: **semantic** `raise_signal`/`clear_signal`/`list_signals`
   (drive the push source — compose with other sources, optional TTL) and **control**
   `poll_now`/`set_led`/`blink`/`reload_config` (`set_led` is a raw, transient
@@ -204,8 +204,9 @@ rebuilds them for the packaged bundle.
   serial port; running both yields `Cannot lock port`. The Electron app also holds
   a single-instance lock.
 - `serial.ts` is heavily `serial:`-logged for diagnosing connect/reconnect.
-- Dev flags for `npm run app`: `PULSAR_OPEN=1` (auto-open window), `PULSAR_MCP=1`
-  (start MCP), `PULSAR_TEST_PUSH=1` (register `test-push.ts`, a demo push source).
+- Dev flags for `npm run app`: `PULSAR_OPEN=1` (auto-open window),
+  `PULSAR_TEST_PUSH=1` (register `test-push.ts`, a demo push source). The MCP
+  server is always on.
 
 ## Adding a new event source
 

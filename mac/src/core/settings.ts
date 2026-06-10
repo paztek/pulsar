@@ -29,7 +29,6 @@ export interface PulsarSettings {
   serialPort: string;
   pollIntervalMs: number;
   ruleConfig: RuleConfig;
-  mcpEnabled: boolean;
   mcpPort: number;
   launchAtLogin: boolean;
 }
@@ -115,7 +114,6 @@ function migrateFromFiles(): PulsarSettings {
     serialPort: process.env.SERIAL_PORT || DEFAULT_SERIAL_PORT,
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '60000'),
     ruleConfig,
-    mcpEnabled: false,
     mcpPort: DEFAULT_MCP_PORT,
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
   };
@@ -142,7 +140,7 @@ export function loadAndApplySettings(): PulsarSettings {
   }
   current = s;
   applyToConfig(s);
-  log(`settings: loaded (user=${s.githubUsername || 'unset'}, poller=${s.poller}, port=${s.serialPort}, interval=${s.pollIntervalMs}ms, mcp=${s.mcpEnabled})`);
+  log(`settings: loaded (user=${s.githubUsername || 'unset'}, poller=${s.poller}, port=${s.serialPort}, interval=${s.pollIntervalMs}ms)`);
   return s;
 }
 

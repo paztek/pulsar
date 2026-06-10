@@ -1,6 +1,6 @@
 // Connects to the running Pulsar MCP server with the official SDK client and
-// exercises resources + tools. Requires the app running with the MCP server on
-// (PULSAR_MCP=1 npm run app). Run: node scripts/verify-mcp.js
+// exercises resources + tools. Requires the app running (the MCP server is
+// always on). Run: node scripts/verify-mcp.js
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 

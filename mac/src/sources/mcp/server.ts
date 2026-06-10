@@ -2,7 +2,7 @@ import { createServer, IncomingMessage, Server as HttpServer } from 'http';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { Core } from '../../core/core';
-import { getSettings, updateSettings } from '../../core/settings';
+import { getSettings } from '../../core/settings';
 import { McpPushSource } from './push-source';
 import { LedId } from '../../core/types';
 import { log } from '../../core/log';
@@ -134,18 +134,8 @@ export class McpManager {
     this.port = getSettings().mcpPort;
   }
 
-  isRunning(): boolean {
-    return this.http !== null;
-  }
-
   url(): string | null {
     return this.http ? `http://${HOST}:${this.port}/mcp` : null;
-  }
-
-  async setEnabled(on: boolean): Promise<void> {
-    if (on) await this.start();
-    else await this.stop();
-    updateSettings({ mcpEnabled: on });
   }
 
   async start(): Promise<void> {

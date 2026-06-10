@@ -34,7 +34,6 @@ interface SettingsView {
   serialPort: string;
   pollIntervalMs: number;
   ruleConfig: unknown;
-  mcpEnabled: boolean;
   mcpPort: number;
   launchAtLogin: boolean;
 }
