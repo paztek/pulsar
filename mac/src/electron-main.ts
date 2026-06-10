@@ -6,6 +6,7 @@ import { showWindow } from './window';
 import { isLaunchAtLogin, setLaunchAtLogin, reconcileLaunchAtLogin } from './login';
 import { PulsarTray } from './tray';
 import { McpManager } from './mcp/server';
+import { TestPushSource } from './test-push';
 import { Core } from './core';
 import { log } from './log';
 
@@ -50,6 +51,8 @@ if (!gotLock) {
       if (settings.mcpEnabled || process.env.PULSAR_MCP === '1') {
         await mcp.start();
       }
+      // Dev: exercise the push/onChange path without a real push source.
+      if (process.env.PULSAR_TEST_PUSH === '1') core.addPushSource(new TestPushSource());
       // Dev affordance: auto-open the window (no need to click the tray).
       if (process.env.PULSAR_OPEN === '1') showWindow();
     } catch (e) {

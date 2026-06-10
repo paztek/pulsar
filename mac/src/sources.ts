@@ -19,6 +19,21 @@ export interface PullSource {
 }
 
 /**
+ * A push source runs continuously and owns its current signal set (with its own
+ * TTL/expiry). It calls onChange() whenever that set changes, prompting the Core
+ * to re-aggregate.
+ */
+export interface PushSource {
+  readonly name: string;
+  readonly kind: 'push';
+  start(onChange: () => void): void;
+  currentSignals(): Signal[];
+  stop(): void;
+}
+
+export type EventSource = PullSource | PushSource;
+
+/**
  * A single "thing that needs attention," produced by an event source. The Core
  * aggregates active signals across sources into board state + notifications.
  */
@@ -41,35 +56,32 @@ export interface Notification {
   url?: string;
 }
 
-export interface Aggregated {
-  ledsOn: Set<LedId>;
-  notifications: Notification[];
-}
-
 /**
- * Fold active signals into board state: a LED is on if any signal lights it; if
- * there are no signals at all, `allClear` lights instead. Notify-signals produce
- * notifications, deduped by id (mirrors the previous evaluate() behavior).
+ * Fold active signals into LED state: a LED is on if any signal lights it; if
+ * there are no signals at all, `allClear` lights instead. Idempotent — safe to
+ * call on every recompute (notifications are handled separately, by the Core,
+ * for newly-appeared signals only).
  */
-export function aggregate(signals: Signal[], allClear: { leds: LedId[] } | null): Aggregated {
+export function aggregateLeds(signals: Signal[], allClear: { leds: LedId[] } | null): Set<LedId> {
   const ledsOn = new Set<LedId>();
-  const notifications: Notification[] = [];
-  const seen = new Set<string>();
-
   for (const s of signals) {
     for (const led of s.leds) ledsOn.add(led);
-    if (!s.notify || seen.has(s.id)) continue;
-    seen.add(s.id);
-    notifications.push({
-      title: s.group,
-      message: s.context ? `${s.context}: ${s.title}` : s.title,
-      url: s.url,
-    });
   }
-
   if (signals.length === 0 && allClear) {
     for (const led of allClear.leds) ledsOn.add(led);
   }
+  return ledsOn;
+}
 
-  return { ledsOn, notifications };
+export function notificationFor(s: Signal): Notification {
+  return {
+    title: s.group,
+    message: s.context ? `${s.context}: ${s.title}` : s.title,
+    url: s.url,
+  };
+}
+
+/** A signal is active now if it has no TTL or the TTL is in the future. */
+export function isActive(s: Signal, now: number): boolean {
+  return s.expiresAt === undefined || s.expiresAt > now;
 }

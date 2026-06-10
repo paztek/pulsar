@@ -6,7 +6,7 @@ import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
 import { config, getActiveRules } from './config';
 import { ledNameToId, ResolvedConfig } from './engine';
-import { aggregate, Notification, Signal } from './sources';
+import { aggregateLeds, isActive, notificationFor, PullSource, PushSource, Signal } from './sources';
 import { GithubSource } from './github-source';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
@@ -60,6 +60,13 @@ export class Core extends EventEmitter {
   private ruleHits: RuleHitSummary[] = [];
   private mcpInfo: { enabled: boolean; url: string | null } = { enabled: false, url: null };
 
+  // Source registry + aggregation state.
+  private pushSources: PushSource[] = [];
+  private lastSignals: Map<string, Signal[]> = new Map(); // per pull-source, last good poll
+  private notifiedIds: Set<string> = new Set(); // signal ids already notified for
+  private recomputing = false;
+  private recomputePending = false;
+
   constructor() {
     super();
     // Guarantee an 'error' listener: Node treats a listener-less 'error' emit as
@@ -92,8 +99,31 @@ export class Core extends EventEmitter {
       clearInterval(this.interval);
       this.interval = null;
     }
+    for (const s of this.pushSources) s.stop();
     await this.arduino.allOff();
     await this.arduino.close();
+  }
+
+  /** Register a push source; its onChange triggers a coalesced re-aggregation. */
+  addPushSource(src: PushSource): void {
+    this.pushSources.push(src);
+    src.start(() => this.requestRecompute());
+    log(`core: push source "${src.name}" registered`);
+    this.requestRecompute();
+  }
+
+  removePushSource(name: string): void {
+    const idx = this.pushSources.findIndex((s) => s.name === name);
+    if (idx === -1) return;
+    const [src] = this.pushSources.splice(idx, 1);
+    src.stop();
+    log(`core: push source "${src.name}" removed`);
+    this.requestRecompute();
+  }
+
+  /** Coalesced request to recompute effective state (e.g. from a push onChange). */
+  requestRecompute(): void {
+    void this.recompute();
   }
 
   /** Force an immediate poll (used by tray "Poll now" and the MCP poll_now tool). */
@@ -169,6 +199,7 @@ export class Core extends EventEmitter {
     await this.arduino.blink();
   }
 
+  /** Poll the pull sources, refresh their cached signals, then recompute. */
   private async tick(): Promise<void> {
     if (this.ticking) {
       log('core: tick already in progress — skipping');
@@ -177,51 +208,97 @@ export class Core extends EventEmitter {
     this.ticking = true;
     try {
       log('--- tick ---');
-      let signals: Signal[] | null;
-      try {
-        signals = await this.github.poll(this.rules.rules, {
-          username: config.github.username,
-          repos: this.rules.repos,
-        });
-      } catch (e) {
-        log(`core: poll failed — ${(e as Error).message}; skipping tick`);
-        this.emit('error', e as Error);
-        return;
+      const ctx = { username: config.github.username, repos: this.rules.repos };
+      for (const src of this.pullSources()) {
+        let signals: Signal[] | null;
+        try {
+          signals = await src.poll(this.rules.rules, ctx);
+        } catch (e) {
+          log(`core: ${src.name} poll failed — ${(e as Error).message}; keeping last signals`);
+          this.emit('error', e as Error);
+          continue;
+        }
+        if (signals === null) {
+          log(`core: ${src.name} backed off — keeping last signals`);
+          continue;
+        }
+        this.lastSignals.set(src.name, signals);
       }
-      if (signals === null) return; // a source backed off; keep current state
-      await this.applyDecision(signals, ruleHitsFromSignals(signals));
+      await this.recompute();
     } finally {
       this.ticking = false;
     }
   }
 
-  /**
-   * The single LED writer: aggregate signals → board state + notifications, write
-   * the changed LEDs, update the snapshot, and emit. Every path that changes the
-   * board goes through here (poll loop now; push sources / overrides later).
-   */
-  private async applyDecision(signals: Signal[], ruleHits: RuleHitSummary[]): Promise<void> {
-    const { ledsOn, notifications } = aggregate(signals, this.rules.allClear);
-    log(`engine: LEDs on = [${[...ledsOn].map((id) => LedId[id]).join(', ') || 'none'}]; notifications = ${notifications.length}`);
-
-    await Promise.all(ALL_LEDS.map((id) => this.arduino.setLed(id, ledsOn.has(id))));
-
-    this.leds = {
-      red: ledsOn.has(LedId.RED),
-      yellow: ledsOn.has(LedId.YELLOW),
-      blue: ledsOn.has(LedId.BLUE),
-      green: ledsOn.has(LedId.GREEN),
-    };
-    this.lastTickAt = new Date().toISOString();
-    this.ruleHits = ruleHits;
-    this.emit('leds', { ...this.leds });
-    this.emit('tick', this.getSnapshot());
-
-    this.fireNotifications(notifications);
+  private pullSources(): PullSource[] {
+    return [this.github];
   }
 
-  private fireNotifications(notifications: Notification[]): void {
-    for (const n of notifications) notify(n.title, n.message, n.url);
+  /**
+   * Single writer: union every source's active signals → effective LED state →
+   * write changed LEDs, update the snapshot, emit, and fire notifications for
+   * newly-appeared signals only. Coalesced so a poll tick and a push onChange
+   * can't interleave.
+   */
+  private async recompute(): Promise<void> {
+    if (this.recomputing) {
+      this.recomputePending = true;
+      return;
+    }
+    this.recomputing = true;
+    try {
+      do {
+        this.recomputePending = false;
+        const signals = this.collectSignals();
+        const ledsOn = aggregateLeds(signals, this.rules.allClear);
+        log(`engine: LEDs on = [${[...ledsOn].map((id) => LedId[id]).join(', ') || 'none'}]; signals = ${signals.length}`);
+
+        await Promise.all(ALL_LEDS.map((id) => this.arduino.setLed(id, ledsOn.has(id))));
+
+        this.leds = {
+          red: ledsOn.has(LedId.RED),
+          yellow: ledsOn.has(LedId.YELLOW),
+          blue: ledsOn.has(LedId.BLUE),
+          green: ledsOn.has(LedId.GREEN),
+        };
+        this.lastTickAt = new Date().toISOString();
+        this.ruleHits = ruleHitsFromSignals(signals);
+        this.emit('leds', { ...this.leds });
+        this.emit('tick', this.getSnapshot());
+
+        this.fireFreshNotifications(signals);
+      } while (this.recomputePending);
+    } finally {
+      this.recomputing = false;
+    }
+  }
+
+  /** Union of every source's currently-active signals. */
+  private collectSignals(): Signal[] {
+    const now = Date.now();
+    const out: Signal[] = [];
+    for (const sigs of this.lastSignals.values()) {
+      for (const s of sigs) if (isActive(s, now)) out.push(s);
+    }
+    for (const src of this.pushSources) {
+      for (const s of src.currentSignals()) if (isActive(s, now)) out.push(s);
+    }
+    return out;
+  }
+
+  /** Notify once per newly-appeared notify-signal (by id), not on every recompute. */
+  private fireFreshNotifications(signals: Signal[]): void {
+    const currentIds = new Set<string>();
+    const justNotified = new Set<string>();
+    for (const s of signals) {
+      currentIds.add(s.id);
+      if (s.notify && !this.notifiedIds.has(s.id) && !justNotified.has(s.id)) {
+        justNotified.add(s.id);
+        const n = notificationFor(s);
+        notify(n.title, n.message, n.url);
+      }
+    }
+    this.notifiedIds = currentIds;
   }
 }
 
