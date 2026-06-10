@@ -1,8 +1,11 @@
 // Generates the menu bar icons: a simplified "pulsar" glyph (central hub + four
 // radiating arms ending in nodes) with a colored status badge in the corner.
 // Non-template (so the badge can be colored), rendered per theme — a dark glyph
-// for a light menu bar and a light glyph for a dark one. Self-contained (Node
-// zlib only); supersampled then downscaled for anti-aliasing.
+// for a light menu bar and a light glyph for a dark one. Each glyph carries a
+// contrasting halo so its silhouette still reads if macOS shows the "wrong"
+// variant (the menu bar can be dark in Light mode over a dark wallpaper, where
+// `nativeTheme.shouldUseDarkColors` is still false). Self-contained (Node zlib
+// only); supersampled then downscaled for anti-aliasing.
 //
 //   node scripts/gen-menubar-icons.js          # → assets/menubar/*.png
 //   node scripts/gen-menubar-icons.js preview   # → /tmp/menubar-preview.png (a grid to eyeball)
@@ -20,6 +23,13 @@ const STATUS = {
   connecting: [240, 176, 48],
   disconnected: [228, 72, 60],
 };
+
+// Each variant pairs a glyph color with a halo in the opposite tone, so the
+// silhouette reads on either menu bar background.
+const VARIANTS = [
+  { name: 'light', glyph: GLYPH_DARK, halo: GLYPH_LIGHT }, // light menu bar
+  { name: 'dark', glyph: GLYPH_LIGHT, halo: GLYPH_DARK }, // dark menu bar
+];
 
 // ---- drawing on an RGBA buffer (W x W) ----
 function px(buf, W, x, y, r, g, b, a) {
@@ -42,17 +52,20 @@ function rect(buf, W, x0, y0, x1, y1, color) {
   }
 }
 
-function drawGlyph(buf, W, color) {
+// `grow` dilates every shape by a uniform margin (in px) — used to paint the
+// halo pass underneath the glyph at grow=0.
+function drawGlyph(buf, W, color, grow = 0) {
   const c = W / 2;
   const armLen = W * 0.39;
-  const armHW = W * 0.043;
-  const centerR = W * 0.16;
-  const endR = W * 0.092;
+  const armHW = W * 0.043 + grow;
+  const centerR = W * 0.16 + grow;
+  const endR = W * 0.092 + grow;
+  const armEnd = armLen + grow; // outer end of each arm, extended by the halo
   // four orthogonal arms
-  rect(buf, W, c - armHW, c - armLen, c + armHW, c, color); // up
-  rect(buf, W, c - armHW, c, c + armHW, c + armLen, color); // down
-  rect(buf, W, c - armLen, c - armHW, c, c + armHW, color); // left
-  rect(buf, W, c, c - armHW, c + armLen, c + armHW, color); // right
+  rect(buf, W, c - armHW, c - armEnd, c + armHW, c + grow, color); // up
+  rect(buf, W, c - armHW, c - grow, c + armHW, c + armEnd, color); // down
+  rect(buf, W, c - armEnd, c - armHW, c + grow, c + armHW, color); // left
+  rect(buf, W, c - grow, c - armHW, c + armEnd, c + armHW, color); // right
   // end nodes
   disc(buf, W, c, c - armLen, endR, color);
   disc(buf, W, c, c + armLen, endR, color);
@@ -86,10 +99,13 @@ function resize(src, sw, sh, dw, dh) {
   return out;
 }
 
-function icon(size, glyphColor, statusColor) {
+const HALO = 0.06; // halo thickness as a fraction of icon width
+
+function icon(size, glyphColor, haloColor, statusColor) {
   const W = size * SS;
   const big = Buffer.alloc(W * W * 4);
-  drawGlyph(big, W, glyphColor);
+  drawGlyph(big, W, haloColor, W * HALO); // halo pass underneath
+  drawGlyph(big, W, glyphColor); // glyph on top
   drawStatus(big, W, statusColor);
   return resize(big, W, W, size, size);
 }
@@ -107,15 +123,17 @@ function encodePng(w, h, rgba) {
 
 // ---- outputs ----
 if (process.argv[2] === 'preview') {
-  // grid: rows = light/dark bar, cols = 3 statuses; icon at 48px on a swatch
+  // grid: rows = light/dark bar, cols = status × variant (each variant shown on
+  // both bars so the halo's cross-background legibility is visible)
   const cell = 72, s = 48, pad = (cell - s) / 2;
-  const cols = Object.keys(STATUS), rows = [[245, 245, 247], [40, 40, 42]];
+  const statuses = Object.keys(STATUS);
+  const cols = statuses.flatMap((st) => VARIANTS.map((v) => ({ st, v })));
+  const rows = [[245, 245, 247], [40, 40, 42]];
   const W = cell * cols.length, H = cell * rows.length;
   const out = Buffer.alloc(W * H * 4);
   rows.forEach((bg, ri) => {
-    const glyph = ri === 0 ? GLYPH_DARK : GLYPH_LIGHT;
-    cols.forEach((st, ci) => {
-      const ic = icon(s, glyph, STATUS[st]);
+    cols.forEach(({ st, v }, ci) => {
+      const ic = icon(s, v.glyph, v.halo, STATUS[st]);
       for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) {
         const X = ci * cell + x, Y = ri * cell + y, di = (Y * W + X) * 4;
         out[di] = bg[0]; out[di + 1] = bg[1]; out[di + 2] = bg[2]; out[di + 3] = 255;
@@ -136,9 +154,9 @@ if (process.argv[2] === 'preview') {
   const dir = path.join(__dirname, '..', 'assets', 'menubar');
   fs.mkdirSync(dir, { recursive: true });
   for (const [st, color] of Object.entries(STATUS)) {
-    for (const [theme, glyph] of [['light', GLYPH_DARK], ['dark', GLYPH_LIGHT]]) {
-      fs.writeFileSync(path.join(dir, `${st}-${theme}.png`), encodePng(16, 16, icon(16, glyph, color)));
-      fs.writeFileSync(path.join(dir, `${st}-${theme}@2x.png`), encodePng(32, 32, icon(32, glyph, color)));
+    for (const v of VARIANTS) {
+      fs.writeFileSync(path.join(dir, `${st}-${v.name}.png`), encodePng(16, 16, icon(16, v.glyph, v.halo, color)));
+      fs.writeFileSync(path.join(dir, `${st}-${v.name}@2x.png`), encodePng(32, 32, icon(32, v.glyph, v.halo, color)));
     }
   }
   console.log('wrote assets/menubar/*.png');
