@@ -1,15 +1,9 @@
-import { app, Tray, Menu, nativeImage } from 'electron';
+import { app, Tray, Menu, nativeImage, nativeTheme } from 'electron';
 import * as path from 'path';
 import { Core } from '../../core/core';
 import { SerialStatus } from '../../serial/serial';
 import { showWindow } from '../window/window';
 import { log } from '../../core/log';
-
-const ICON_FILE: Record<SerialStatus, string> = {
-  connected: 'connected.png',
-  connecting: 'connecting.png',
-  disconnected: 'disconnected.png',
-};
 
 const LED_LABEL: Record<string, string> = {
   red: '🔴 red',
@@ -26,8 +20,9 @@ function trayRemaining(expiresAt: number): string {
 }
 
 /**
- * Menu bar presence. The icon is a colored dot reflecting serial connectivity;
- * the menu shows live status and offers Poll now / Quit. Subscribes to Core.
+ * Menu bar presence. The icon is the Pulsar glyph with a colored status badge
+ * (green/amber/red) reflecting serial connectivity; the menu shows live status
+ * and controls. Subscribes to Core (status) and nativeTheme (light/dark glyph).
  */
 export interface TrayCallbacks {
   onToggleMcp: () => void;
@@ -51,6 +46,8 @@ export class PulsarTray {
     });
     // Refresh the menu's status lines (last poll, lit LEDs) after each tick.
     core.on('tick', () => this.render());
+    // Swap the dark/light glyph when the menu bar appearance changes.
+    nativeTheme.on('updated', () => this.render());
   }
 
   destroy(): void {
@@ -63,9 +60,11 @@ export class PulsarTray {
   }
 
   private icon(status: SerialStatus): Electron.NativeImage {
-    // @2x variants are picked up automatically for retina displays.
+    // Non-template (the status badge is colored), so pick the glyph variant for
+    // the current menu bar appearance. @2x is auto-loaded for retina.
+    const theme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
     return nativeImage.createFromPath(
-      path.join(__dirname, '..', '..', '..', 'assets', 'tray', ICON_FILE[status]),
+      path.join(__dirname, '..', '..', '..', 'assets', 'menubar', `${status}-${theme}.png`),
     );
   }
 

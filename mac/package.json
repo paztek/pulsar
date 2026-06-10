@@ -11,7 +11,7 @@
     "app": "npm run build && electron .",
     "pack": "npm run build && electron-builder --mac --dir",
     "dist": "npm run build && electron-builder --mac",
-    "icons": "node scripts/gen-tray-icons.js",
+    "icons": "node scripts/gen-menubar-icons.js",
     "icon:app": "node scripts/gen-app-icon.js ../docs/logo.png assets/pulsar.icns",
     "verify:serial": "electron scripts/verify-serialport.js",
     "rebuild": "electron-rebuild",
