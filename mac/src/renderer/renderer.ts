@@ -7,12 +7,24 @@ interface SearchItem {
   repo: string;
   author: string;
 }
+interface SignalView {
+  id: string;
+  source: string;
+  group: string;
+  title: string;
+  url?: string;
+  context?: string;
+  leds: string[];
+  notify: boolean;
+  expiresAt?: number;
+}
 interface Snapshot {
   serial: 'connecting' | 'connected' | 'disconnected';
   serialPort: string;
   leds: Record<'red' | 'yellow' | 'blue' | 'green', boolean>;
   lastTickAt: string | null;
   ruleHits: Array<{ rule: string; items: SearchItem[] }>;
+  signals: SignalView[];
   mcp: { enabled: boolean; url: string | null };
 }
 interface SettingsView {
@@ -58,25 +70,65 @@ function renderStatus(snap: Snapshot): void {
     ? new Date(snap.lastTickAt).toLocaleTimeString()
     : '—';
 
-  const items = snap.ruleHits.flatMap((h) => h.items.map((it) => ({ rule: h.rule, it })));
+  renderSignals(snap.signals);
+}
+
+function remaining(expiresAt: number): string {
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return 'expiring';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s left` : `${Math.round(s / 60)}m left`;
+}
+
+function renderSignals(signals: SignalView[]): void {
   const list = $('matches');
   list.innerHTML = '';
-  if (items.length === 0) {
+
+  if (signals.length === 0) {
     const li = document.createElement('li');
     li.className = 'empty';
     li.textContent = 'Nothing needs attention';
     list.appendChild(li);
     return;
   }
-  for (const { rule, it } of items) {
+
+  for (const s of signals) {
     const li = document.createElement('li');
-    const r = document.createElement('div');
-    r.className = 'rule';
-    r.textContent = rule;
-    const d = document.createElement('div');
-    d.className = 'repo';
-    d.textContent = `${it.repo}: ${it.title}`;
-    li.append(r, d);
+
+    const head = document.createElement('div');
+    head.className = 'sig-head';
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = s.source;
+    const rule = document.createElement('span');
+    rule.className = 'rule';
+    rule.textContent = s.group;
+    head.append(badge, rule);
+    if (s.expiresAt) {
+      const ttl = document.createElement('span');
+      ttl.className = 'ttl';
+      ttl.textContent = remaining(s.expiresAt);
+      head.append(ttl);
+    }
+
+    const dots = document.createElement('div');
+    dots.className = 'sig-leds';
+    for (const led of s.leds) {
+      const d = document.createElement('span');
+      d.className = `mini mini--${led}`;
+      dots.append(d);
+    }
+
+    li.append(head, dots);
+
+    const detailText = s.context ? `${s.context}: ${s.title}` : s.group !== s.title ? s.title : '';
+    if (detailText) {
+      const detail = document.createElement('div');
+      detail.className = 'repo';
+      detail.textContent = detailText;
+      li.append(detail);
+    }
+
     list.appendChild(li);
   }
 }

@@ -25,6 +25,7 @@ export interface SignalView {
   group: string;
   title: string;
   url?: string;
+  context?: string;
   leds: string[];
   notify: boolean;
   expiresAt?: number;
@@ -327,6 +328,7 @@ function signalView(s: Signal): SignalView {
     group: s.group,
     title: s.title,
     url: s.url,
+    context: s.context,
     leds: s.leds.map((l) => LedId[l].toLowerCase()),
     notify: s.notify,
     expiresAt: s.expiresAt,

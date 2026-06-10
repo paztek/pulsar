@@ -98,8 +98,27 @@ body {
   font-size: 12px;
 }
 .matches .rule { font-weight: 620; }
-.matches .repo { color: var(--muted); }
+.matches .repo { color: var(--muted); margin-top: 2px; }
 .matches .empty { color: var(--muted); border-style: dashed; }
+
+.sig-head { display: flex; align-items: center; gap: 8px; }
+.badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 680;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  color: color-mix(in oklch, var(--accent) 70%, var(--text));
+}
+.ttl { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sig-leds { display: flex; gap: 4px; margin-top: 6px; }
+.mini { width: 10px; height: 10px; border-radius: 50%; }
+.mini--red { background: oklch(63% 0.21 25); }
+.mini--yellow { background: oklch(80% 0.15 90); }
+.mini--blue { background: oklch(62% 0.17 250); }
+.mini--green { background: oklch(68% 0.17 150); }
 
 /* Form */
 form { display: grid; gap: 12px; }

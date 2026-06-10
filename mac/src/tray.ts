@@ -18,6 +18,13 @@ const LED_LABEL: Record<string, string> = {
   green: '🟢 green',
 };
 
+function trayRemaining(expiresAt: number): string {
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return 'expiring';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
+}
+
 /**
  * Menu bar presence. The icon is a colored dot reflecting serial connectivity;
  * the menu shows live status and offers Poll now / Quit. Subscribes to Core.
@@ -85,12 +92,24 @@ export class PulsarTray {
       ? new Date(snap.lastTickAt).toLocaleTimeString()
       : '—';
 
+    const signalItems: Electron.MenuItemConstructorOptions[] = snap.signals.length
+      ? [
+          { type: 'separator' },
+          { label: `Signals (${snap.signals.length})`, enabled: false },
+          ...snap.signals.slice(0, 6).map((s) => ({
+            label: `  ${s.source}: ${s.group}${s.expiresAt ? ` · ${trayRemaining(s.expiresAt)}` : ''}`,
+            enabled: false,
+          })),
+        ]
+      : [];
+
     this.tray.setToolTip(`Pulsar — ${this.statusLabel()}`);
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: `Pulsar — ${this.statusLabel()}`, enabled: false },
         { label: lit.length ? `LEDs: ${lit.join(', ')}` : 'LEDs: none', enabled: false },
         { label: `Last poll: ${lastPoll}`, enabled: false },
+        ...signalItems,
         { type: 'separator' },
         { label: 'Open Pulsar…', click: () => showWindow() },
         { label: 'Poll now', click: () => void this.core.pollNow() },
