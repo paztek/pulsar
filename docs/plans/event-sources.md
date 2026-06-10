@@ -1,14 +1,11 @@
 # Plan: Generic event sources
 
-Status: **proposed** · Created 2026-06-10 · Target: `mac/`
+Status: **implemented** (phases A–E) · Created 2026-06-10 · Target: `mac/`
 
 Treat the GitHub poller and the MCP server as two instances of a generic
 **event source**, so future sources (Confluence "page needs your attention",
 PagerDuty, Linear, calendar, …) can be added behind one interface without
 touching the LED/notification core.
-
-Related: [`expressive-led-mcp.md`](./expressive-led-mcp.md) — the timed-override
-layer. See "Relationship" below; the two are complementary layers.
 
 ## Core concept: a source produces *signals*
 
@@ -35,8 +32,7 @@ desiredLeds[led] = some active signal includes led
 notifications     = signals newly appeared (by id) with notify = true
 ```
 
-`desiredLeds` then flows to the single LED writer (and composes under the
-override layer from the expressive-LED plan).
+`desiredLeds` then flows to the single LED writer (`Core.recompute`).
 
 ## The interface (pull + push)
 
@@ -97,8 +93,9 @@ Example: an agent watching Confluence calls
 `raise_signal({ leds:['blue'], title:'Page X needs review', url, ttl_seconds: 3600 })`
 → blue lights until cleared or the hour elapses, composing with GitHub signals.
 
-This is **distinct** from the expressive-LED `set_led(duration)` control tool —
-see Relationship.
+Timed control ("light X for N seconds") is just `raise_signal` with
+`ttl_seconds`. The separate raw `set_led` tool remains a force/override that
+masks status — use `raise_signal` for semantic status.
 
 ## Config / rule generalization + migration
 
@@ -121,25 +118,6 @@ Today a rule is `{ name, query, leds, notify }` (GitHub-implicit). Generalize:
   (`resolveRules` delegates per-source validation).
 - Push sources (MCP) generally need no rules — the agent supplies `leds` in
   `raise_signal`. (Optional later: named "channels" that map to LEDs via config.)
-
-## Relationship to the expressive-LED / override plan
-
-Two **layers**, composed:
-
-```
-effective[led] = override[led]            ← expressive-led-mcp.md (raw, masks)
-               : aggregateOfSources[led]   ← this plan (semantic, composes)
-               : allClear
-```
-
-- **Source/signal layer (this plan):** "there's a *reason* blue should be on";
-  composes with other reasons; cleared by the source or a TTL.
-- **Override layer (other plan):** "*force* red on for 5s regardless of status";
-  masks the aggregate. A low-level escape hatch / demo control.
-
-They share the **single LED writer** and the **effective-state** computation, so
-whichever we build first should introduce that writer cleanly; the other layers
-slot in above/below without rework.
 
 ## Adding a new source later (the payoff)
 
@@ -171,6 +149,6 @@ notifications, tray, or MCP. That's the whole point of the abstraction.
   v1**; revisit if multiple sources want shared semantics.
 - **Inbound webhooks / network listeners** as sources — out of scope now; the
   `PushSource` contract leaves room.
-- Signals are **in-memory** (not persisted across restart), like overrides.
+- Signals are **in-memory** (not persisted across restart).
 - Open question: do push signals **notify** on arrival by default? **Rec: yes if
   `notify` set in the call, default false.**

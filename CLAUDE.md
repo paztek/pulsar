@@ -206,6 +206,4 @@ tray, or MCP changes. Push-style sources implement `PushSource` and are added vi
 The event-source abstraction (plan: [`docs/plans/event-sources.md`](docs/plans/event-sources.md))
 is implemented — GitHub is a `PullSource`, MCP is a `PushSource`. The original
 Electron/MCP build is [`docs/plans/electron-menubar-mcp.md`](docs/plans/electron-menubar-mcp.md).
-A proposed timed-**override** layer (force a LED regardless of status, vs. the
-composing `raise_signal`) is in [`docs/plans/expressive-led-mcp.md`](docs/plans/expressive-led-mcp.md)
-— largely overlaps with `raise_signal(ttl_seconds)`, so revisit scope before building.
+Timed LED control is covered by `raise_signal(ttl_seconds)`.
