@@ -5,6 +5,11 @@ directories:
   output: release
   buildResources: build
 
+# Ad-hoc sign the bundle: electron-builder skips signing without a Developer ID,
+# leaving Electron's linker signature (wrong identifier, unbound Info.plist),
+# which makes macOS drop notifications. See scripts/after-pack.js.
+afterPack: scripts/after-pack.js
+
 # Compiled JS + renderer assets + tray icons. Production node_modules are
 # included automatically; dev deps and TS sources are excluded.
 files:
