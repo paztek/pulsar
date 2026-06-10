@@ -3,6 +3,7 @@ import { createCore, startCore } from './index';
 import { loadAndApplySettings } from './settings';
 import { registerIpc } from './ipc';
 import { showWindow } from './window';
+import { isLaunchAtLogin, setLaunchAtLogin, reconcileLaunchAtLogin } from './login';
 import { PulsarTray } from './tray';
 import { McpManager } from './mcp/server';
 import { Core } from './core';
@@ -28,11 +29,18 @@ if (!gotLock) {
       // Load settings (migrating from .env/config.json on first run) into the
       // runtime config before constructing the Core.
       const settings = loadAndApplySettings();
+      // Make the OS login item match the persisted setting.
+      reconcileLaunchAtLogin(settings.launchAtLogin);
       core = createCore();
       mcp = new McpManager(core);
       // Attach the tray and IPC BEFORE starting so they catch the initial events.
       tray = new PulsarTray(core, {
         onToggleMcp: () => void mcp!.setEnabled(!mcp!.isRunning()),
+        onToggleLaunchAtLogin: () => {
+          setLaunchAtLogin(!isLaunchAtLogin());
+          tray?.refresh();
+        },
+        isLaunchAtLogin,
       });
       registerIpc(core);
       await startCore(core);

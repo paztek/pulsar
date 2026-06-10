@@ -24,6 +24,8 @@ const LED_LABEL: Record<string, string> = {
  */
 export interface TrayCallbacks {
   onToggleMcp: () => void;
+  onToggleLaunchAtLogin: () => void;
+  isLaunchAtLogin: () => boolean;
 }
 
 export class PulsarTray {
@@ -46,6 +48,11 @@ export class PulsarTray {
 
   destroy(): void {
     this.tray.destroy();
+  }
+
+  /** Re-render the menu (for state not carried by Core events, e.g. launch-at-login). */
+  refresh(): void {
+    this.render();
   }
 
   private icon(status: SerialStatus): Electron.NativeImage {
@@ -92,6 +99,12 @@ export class PulsarTray {
           type: 'checkbox',
           checked: snap.mcp.enabled,
           click: () => this.cb.onToggleMcp(),
+        },
+        {
+          label: 'Launch at login',
+          type: 'checkbox',
+          checked: this.cb.isLaunchAtLogin(),
+          click: () => this.cb.onToggleLaunchAtLogin(),
         },
         { type: 'separator' },
         { label: 'Quit Pulsar', click: () => app.quit() },
