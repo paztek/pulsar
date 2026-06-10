@@ -71,6 +71,9 @@ export class Core extends EventEmitter {
 
   constructor() {
     super();
+    // Guarantee an 'error' listener: Node treats a listener-less 'error' emit as
+    // an unhandled exception and crashes the process. A failed poll must not.
+    this.on('error', (err) => log(`core: error — ${err.message}`));
     this.rules = getActiveRules();
     this.arduino = new ArduinoController();
     this.arduino.onStatus((s) => {
@@ -84,7 +87,12 @@ export class Core extends EventEmitter {
     log(`core: ${this.rules.rules.length} rule(s); repos scope: ${this.rules.repos.length === 0 ? '(all)' : this.rules.repos.join(', ')}`);
     log(`core: client ${config.github.poller}; user ${config.github.username}; interval ${config.poll.intervalMs}ms`);
     await this.arduino.connect();
-    await this.tick();
+    // The first poll must never abort startup (e.g. a transient GitHub/gh error).
+    try {
+      await this.tick();
+    } catch (e) {
+      log(`core: first tick failed — ${(e as Error).message}`);
+    }
     this.interval = setInterval(() => void this.tick(), config.poll.intervalMs);
   }
 

@@ -122,6 +122,10 @@ export class GithubCLIClient implements GithubClient {
     const env = { ...process.env };
     delete env.GITHUB_TOKEN;
     delete env.GH_TOKEN;
+    // GUI-launched apps (Finder/Spotlight) inherit a minimal PATH without
+    // Homebrew, so `gh` (commonly /opt/homebrew/bin or /usr/local/bin) isn't
+    // found. Make sure those locations are on PATH.
+    env.PATH = ['/opt/homebrew/bin', '/usr/local/bin', env.PATH].filter(Boolean).join(':');
     try {
       const { stdout } = await execFileAsync('gh', [
         'api', '-X', 'GET', 'search/issues',
