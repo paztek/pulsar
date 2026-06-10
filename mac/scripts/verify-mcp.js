@@ -29,8 +29,25 @@ const URL_ = process.env.MCP_URL || 'http://127.0.0.1:7332/mcp';
   const poll = await client.callTool({ name: 'poll_now', arguments: {} });
   console.log('poll_now →', poll.content[0].text);
 
-  const led = await client.callTool({ name: 'set_led', arguments: { led: 'blue', on: true } });
-  console.log('set_led →', led.content[0].text);
+  // Push-source flow: raise a semantic signal, confirm it shows in status, clear it.
+  const raised = await client.callTool({
+    name: 'raise_signal',
+    arguments: { leds: ['blue'], title: 'verify needs attention', notify: false, ttl_seconds: 30 },
+  });
+  const id = raised.content[0].text.replace(/^Raised /, '').split(' ')[0];
+  console.log('raise_signal →', raised.content[0].text);
+
+  const afterRaise = JSON.parse((await client.readResource({ uri: 'pulsar://status' })).contents[0].text);
+  console.log('status after raise: blue =', afterRaise.leds.blue, '| signals =', afterRaise.signals.map((s) => s.source + ':' + s.leds.join('')));
+
+  const listed = await client.callTool({ name: 'list_signals', arguments: {} });
+  console.log('list_signals →', listed.content[0].text.replace(/\s+/g, ' ').slice(0, 120));
+
+  const cleared = await client.callTool({ name: 'clear_signal', arguments: { id } });
+  console.log('clear_signal →', cleared.content[0].text);
+
+  const afterClear = JSON.parse((await client.readResource({ uri: 'pulsar://status' })).contents[0].text);
+  console.log('status after clear: blue =', afterClear.leds.blue, '| signals =', afterClear.signals.length);
 
   await client.close();
   console.log('OK: MCP server verified');

@@ -18,6 +18,18 @@ export interface RuleHitSummary {
   items: SearchItem[];
 }
 
+/** A currently-active signal, flattened for the snapshot (LEDs as names). */
+export interface SignalView {
+  id: string;
+  source: string;
+  group: string;
+  title: string;
+  url?: string;
+  leds: string[];
+  notify: boolean;
+  expiresAt?: number;
+}
+
 /** Everything tray / GUI / MCP need to render, in one object. */
 export interface Snapshot {
   serial: SerialStatus;
@@ -25,6 +37,7 @@ export interface Snapshot {
   leds: LedState;
   lastTickAt: string | null;
   ruleHits: RuleHitSummary[];
+  signals: SignalView[];
   mcp: { enabled: boolean; url: string | null };
 }
 
@@ -177,6 +190,7 @@ export class Core extends EventEmitter {
       leds: { ...this.leds },
       lastTickAt: this.lastTickAt,
       ruleHits: this.ruleHits.map((h) => ({ rule: h.rule, items: h.items })),
+      signals: this.collectSignals().map(signalView),
       mcp: { ...this.mcpInfo },
     };
   }
@@ -304,6 +318,19 @@ export class Core extends EventEmitter {
 
 function makeClient(): GithubClient {
   return config.github.poller === 'api' ? new GithubAPIClient() : new GithubCLIClient();
+}
+
+function signalView(s: Signal): SignalView {
+  return {
+    id: s.id,
+    source: s.source,
+    group: s.group,
+    title: s.title,
+    url: s.url,
+    leds: s.leds.map((l) => LedId[l].toLowerCase()),
+    notify: s.notify,
+    expiresAt: s.expiresAt,
+  };
 }
 
 /** Rebuild the snapshot's per-group hit summary from the active signals. */
