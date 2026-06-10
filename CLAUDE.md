@@ -79,28 +79,45 @@ rules when set (Electron), else file-loaded rules (standalone).
 ## Architecture
 
 `Core` (`core.ts`, an `EventEmitter`) is the single source of truth. It owns the
-`ArduinoController` + `GithubClient` + rules, runs the poll loop, and emits
-`serial-status` | `leds` | `tick` | `error`. The tray, the renderer (via IPC),
-and the MCP server all subscribe to it and read one `Snapshot` (serial status,
-LED state, last poll, matched rule hits, MCP info). Commands: `start`/`stop`/
-`pollNow`/`reloadRules`/`applySettings`/`setLed`/`blink`/`setMcpInfo`.
+`ArduinoController`, a registry of **event sources**, and the rules; runs the
+poll loop; and emits `serial-status` | `leds` | `tick` | `error`. The tray, the
+renderer (via IPC), and the MCP server subscribe to it and read one `Snapshot`
+(serial status, LED state, last poll, rule hits, **active signals**, MCP info).
+Commands: `start`/`stop`/`pollNow`/`reloadRules`/`applySettings`/`setLed`/
+`blink`/`setMcpInfo`/`addPushSource`/`removePushSource`.
 
-Each `tick()`:
-1. For each rule, `expandQuery()` fills `{{username}}`/`{{repos}}`/
-   `{{lastChecked}}`/`{{now}}` into the GitHub Search query; `github.search()`
-   runs it. Rules run **sequentially** with 200–500ms jitter to stay under
-   GitHub's secondary rate limits.
-2. `evaluate(hits, config)` (pure, `engine.ts`) decides which LEDs light and what
-   to notify. Any matching rule lights its LEDs; if **none** matched,
-   `allClear.leds` light. Notifications dedupe by URL.
-3. `ArduinoController.setLed()` writes `SET <id> <0|1>\n`, only when *desired*
-   state changed.
+### Event sources → signals → effective LEDs
+
+Everything that can light a LED is an **event source** producing **`Signal`s**
+("something needs attention"; carries `leds`, `notify`, optional `expiresAt`).
+See `sources.ts`. Two kinds:
+
+- **`PullSource`** — polled on the timer. `GithubSource` (`github-source.ts`) is
+  the only one today: it owns query expansion (`expandQuery`), the per-rule
+  sliding window (`lastChecked`), inter-rule jitter, and rate-limit backoff,
+  returning `Signal[]` or `null` (backed off).
+- **`PushSource`** — runs continuously and owns its signal set with TTL expiry;
+  calls `onChange()` to trigger re-aggregation. `McpPushSource`
+  (`mcp/push-source.ts`) lets an agent `raise`/`clear` semantic signals.
+
+`Core.recompute()` is the **single writer**: it unions every source's active
+signals (`collectSignals`), folds them to effective LED state
+(`aggregateLeds`: a LED is on if any signal lights it; `allClear` when none),
+writes only changed LEDs via `ArduinoController.setLed()` (`SET <id> <0|1>\n`),
+updates the snapshot, emits, and fires notifications **only for newly-appeared
+signal ids** (`fireFreshNotifications` — not every tick). It's **coalesced** so a
+poll tick and a push `onChange` can't interleave.
+
+`tick()` polls the pull sources into a per-source cache (`lastSignals`; a
+backed-off source keeps its last set) then calls `recompute()`. Push sources call
+`recompute()` directly via `onChange`.
 
 ### Electron process model
 
 - **Main process**: `electron-main.ts` (lifecycle, single-instance lock,
-  `dock.hide()`, quit → LEDs off + MCP stop), `core.ts`, `tray.ts`, `settings.ts`,
-  `login.ts`, `ipc.ts`, `window.ts`, `mcp/server.ts`.
+  `dock.hide()`, quit → LEDs off + MCP stop), `core.ts`, `sources.ts`,
+  `github-source.ts`, `tray.ts`, `settings.ts`, `login.ts`, `ipc.ts`, `window.ts`,
+  `mcp/server.ts`, `mcp/push-source.ts`.
 - **Renderer**: `renderer/` — a sandboxed browser script (`contextIsolation: true`,
   `nodeIntegration: false`, strict CSP). It talks to main **only** through the
   `preload.ts` `contextBridge` (`window.pulsar`). `renderer.ts` must stay
@@ -111,20 +128,30 @@ Each `tick()`:
   The token is **redacted** before crossing to the renderer.
 - **MCP** (`mcp/server.ts`): a toggleable Streamable-HTTP server on
   `127.0.0.1:<mcpPort>` (stateful sessions). Resources `pulsar://status|events|config`
-  (token redacted) and tools `poll_now`/`set_led`/`blink`/`reload_config`. The SDK
-  is loaded via `require()` (its package "exports" map isn't read by our classic
-  TS moduleResolution).
+  (token redacted). Tools: **semantic** `raise_signal`/`clear_signal`/`list_signals`
+  (drive the push source — compose with other sources, optional TTL) and **control**
+  `poll_now`/`set_led`/`blink`/`reload_config` (`set_led` is a raw, transient
+  force). The SDK is loaded via `require()` (its "exports" map isn't read by our
+  classic TS moduleResolution). On start the manager registers an `McpPushSource`
+  with the Core; on stop it removes it.
 
 ### Layering (keep this separation)
 
-- `engine.ts` / `rules.ts` are **pure** — no I/O, no Electron. Put matcher,
-  query-expansion, and rule-validation logic here. `rules.ts` is shared by the
-  file loader and the settings store, so it must stay Electron-free.
-- `github.ts` hides the backend behind `GithubClient` (`types.ts`). Both clients
-  return `SearchItem[]` **or `null`**. `null` means "backed off / rate-limited."
-  Callers must treat `null` as a reason to **abandon the rest of the tick**, not
-  as empty results, or LEDs falsely go to all-clear. `RateLimitTracker` applies an
-  exponential backoff floor (`BACKOFF_FLOOR_SECS`).
+- `engine.ts` / `rules.ts` / `sources.ts` are **pure** — no I/O, no Electron.
+  `engine.ts` holds the `Rule` type, `expandQuery`, `ledNameToId`. `rules.ts`
+  validates/parses rule config (shared by the file loader and the settings store,
+  so it must stay Electron-free). `sources.ts` holds the `Signal`/source
+  interfaces and `aggregateLeds`. There is no longer an `evaluate()` — folding
+  signals to LEDs lives in `Core.recompute()` + `aggregateLeds`.
+- A **rule** is `{ name, source, leds, notify, params }` (`source` defaults to
+  `github`, whose `params.query` is the search). `rules.ts` is back-compatible
+  with the old top-level `query`. Unknown `source` values parse fine and are
+  simply ignored until a matching source is registered — the extensibility seam.
+- `github.ts` hides the backend behind `GithubClient` (`types.ts`); `GithubSource`
+  wraps it. A client returns `SearchItem[]` **or `null`** — `null` means "backed
+  off / rate-limited," which makes the source return `null` and the Core **keep
+  that source's last signals** for the round (never falsely all-clear).
+  `RateLimitTracker` applies an exponential backoff floor (`BACKOFF_FLOOR_SECS`).
 
 ### Key cross-file invariants
 
@@ -162,10 +189,23 @@ rebuilds them for the packaged bundle.
   serial port; running both yields `Cannot lock port`. The Electron app also holds
   a single-instance lock.
 - `serial.ts` is heavily `serial:`-logged for diagnosing connect/reconnect.
+- Dev flags for `npm run app`: `PULSAR_OPEN=1` (auto-open window), `PULSAR_MCP=1`
+  (start MCP), `PULSAR_TEST_PUSH=1` (register `test-push.ts`, a demo push source).
+
+## Adding a new event source
+
+To add, say, Confluence-as-poll: implement `PullSource` in a new
+`*-source.ts` (its `poll(rules, ctx)` returns `Signal[]`), register it in
+`Core.pullSources()`, and let users add rules with `"source": "confluence"` and
+source-specific `params`. Nothing in the LED writer, aggregation, notifications,
+tray, or MCP changes. Push-style sources implement `PushSource` and are added via
+`Core.addPushSource()`.
 
 ## Roadmap context
 
-The poller is source-agnostic (rule = name + search query + LEDs). Future
-non-GitHub sources (CI, PagerDuty, Linear, calendar) plug in as additional
-`GithubClient`-style backends behind the same engine. Original phased build plan:
-[`docs/plans/electron-menubar-mcp.md`](docs/plans/electron-menubar-mcp.md).
+The event-source abstraction (plan: [`docs/plans/event-sources.md`](docs/plans/event-sources.md))
+is implemented — GitHub is a `PullSource`, MCP is a `PushSource`. The original
+Electron/MCP build is [`docs/plans/electron-menubar-mcp.md`](docs/plans/electron-menubar-mcp.md).
+A proposed timed-**override** layer (force a LED regardless of status, vs. the
+composing `raise_signal`) is in [`docs/plans/expressive-led-mcp.md`](docs/plans/expressive-led-mcp.md)
+— largely overlaps with `raise_signal(ttl_seconds)`, so revisit scope before building.
