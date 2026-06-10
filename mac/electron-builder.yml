@@ -1,0 +1,30 @@
+appId: com.matthieubalmes.pulsar
+productName: Pulsar
+
+directories:
+  output: release
+  buildResources: build
+
+# Compiled JS + renderer assets + tray icons. Production node_modules are
+# included automatically; dev deps and TS sources are excluded.
+files:
+  - dist/**
+  - assets/**
+  - package.json
+
+# serialport ships native .node bindings that can't be loaded from inside an
+# asar — unpack them so they're loadable at runtime.
+asarUnpack:
+  - "**/*.node"
+  - "node_modules/@serialport/**"
+  - "node_modules/serialport/**"
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  icon: assets/pulsar.icns
+  # Menu bar agent: no Dock icon, no app-switcher entry.
+  extendInfo:
+    LSUIElement: 1

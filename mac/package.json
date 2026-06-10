@@ -1,12 +1,16 @@
 {
   "name": "pulsar",
   "version": "0.1.0",
+  "description": "A physical GitHub status light over USB — macOS menu bar app.",
+  "author": "Matthieu Balmes",
   "main": "dist/electron-main.js",
   "scripts": {
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc && node scripts/copy-renderer.js",
     "start": "node dist/index.js",
     "app": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --mac --dir",
+    "dist": "npm run build && electron-builder --mac",
     "icons": "node scripts/gen-tray-icons.js",
     "verify:serial": "electron scripts/verify-serialport.js",
     "rebuild": "electron-rebuild",
