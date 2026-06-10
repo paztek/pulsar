@@ -5,21 +5,11 @@ import { notify } from './notifications';
 import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
 import { config, getActiveRules } from './config';
-import { expandQuery, ledNameToId, ResolvedConfig, RuleHit } from './engine';
+import { ledNameToId, ResolvedConfig } from './engine';
 import { aggregate, Notification, Signal } from './sources';
+import { GithubSource } from './github-source';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
-
-const JITTER_MIN_MS = 200;
-const JITTER_MAX_MS = 500;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function nextJitter(): number {
-  return JITTER_MIN_MS + Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS);
-}
 
 export type LedState = Record<'red' | 'yellow' | 'blue' | 'green', boolean>;
 
@@ -59,7 +49,7 @@ export interface Core {
  */
 export class Core extends EventEmitter {
   private arduino: ArduinoController;
-  private github: GithubClient;
+  private github: GithubSource;
   private rules: ResolvedConfig;
   private interval: NodeJS.Timeout | null = null;
   private ticking = false;
@@ -81,7 +71,7 @@ export class Core extends EventEmitter {
       this.serialStatus = s;
       this.emit('serial-status', s);
     });
-    this.github = config.github.poller === 'api' ? new GithubAPIClient() : new GithubCLIClient();
+    this.github = new GithubSource(makeClient());
   }
 
   async start(): Promise<void> {
@@ -127,7 +117,7 @@ export class Core extends EventEmitter {
   }
 
   private rebuildClient(): void {
-    this.github = config.github.poller === 'api' ? new GithubAPIClient() : new GithubCLIClient();
+    this.github = new GithubSource(makeClient());
     log(`core: github client → ${config.github.poller}`);
   }
 
@@ -187,40 +177,19 @@ export class Core extends EventEmitter {
     this.ticking = true;
     try {
       log('--- tick ---');
-      const hits: RuleHit[] = [];
-      for (let i = 0; i < this.rules.rules.length; i++) {
-        const rule = this.rules.rules[i];
-        const query = expandQuery(rule.query, {
+      let signals: Signal[] | null;
+      try {
+        signals = await this.github.poll(this.rules.rules, {
           username: config.github.username,
-          lastChecked: rule.lastChecked,
           repos: this.rules.repos,
-          now: new Date(),
         });
-
-        let items: SearchItem[] | null;
-        try {
-          items = await this.github.search(query);
-        } catch (e) {
-          log(`rule "${rule.name}" failed: ${(e as Error).message} — skipping tick`);
-          this.emit('error', e as Error);
-          return;
-        }
-        if (items === null) {
-          // Client backed off; abandon the rest of the tick to avoid stale partial state.
-          return;
-        }
-        rule.lastChecked = new Date();
-        hits.push({ rule, items });
-        log(`  ${rule.name}: ${items.length} match(es)`);
-        for (const it of items) {
-          log(`    @${it.author} ${it.repo} "${it.title}" ${it.url}`);
-        }
-        if (i < this.rules.rules.length - 1) await sleep(nextJitter());
+      } catch (e) {
+        log(`core: poll failed — ${(e as Error).message}; skipping tick`);
+        this.emit('error', e as Error);
+        return;
       }
-
-      const signals = githubSignals(hits);
-      const ruleHits = hits.map((h) => ({ rule: h.rule.name, items: h.items }));
-      await this.applyDecision(signals, ruleHits);
+      if (signals === null) return; // a source backed off; keep current state
+      await this.applyDecision(signals, ruleHitsFromSignals(signals));
     } finally {
       this.ticking = false;
     }
@@ -256,23 +225,17 @@ export class Core extends EventEmitter {
   }
 }
 
-/** Flatten GitHub rule hits into source-agnostic signals (one per matched item). */
-function githubSignals(hits: RuleHit[]): Signal[] {
-  const signals: Signal[] = [];
-  for (const { rule, items } of hits) {
-    for (const it of items) {
-      signals.push({
-        id: it.url,
-        source: 'github',
-        group: rule.name,
-        title: it.title,
-        url: it.url,
-        context: it.repo,
-        author: it.author,
-        leds: rule.leds,
-        notify: rule.notify,
-      });
-    }
+function makeClient(): GithubClient {
+  return config.github.poller === 'api' ? new GithubAPIClient() : new GithubCLIClient();
+}
+
+/** Rebuild the snapshot's per-group hit summary from the active signals. */
+function ruleHitsFromSignals(signals: Signal[]): RuleHitSummary[] {
+  const byGroup = new Map<string, SearchItem[]>();
+  for (const s of signals) {
+    const items = byGroup.get(s.group) ?? [];
+    items.push({ title: s.title, url: s.url ?? '', repo: s.context ?? '', author: s.author ?? '' });
+    byGroup.set(s.group, items);
   }
-  return signals;
+  return [...byGroup.entries()].map(([rule, items]) => ({ rule, items }));
 }

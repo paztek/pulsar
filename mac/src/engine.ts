@@ -1,62 +1,18 @@
-import { LedId, SearchItem } from './types';
+import { LedId } from './types';
 
 export interface Rule {
   name: string;
-  query: string;
+  source: string;                    // which event source handles it ('github' default)
   leds: LedId[];
   notify: boolean;
-  lastChecked: Date;  // mutable: advances each time this rule's query succeeds
+  params: Record<string, unknown>;   // source-specific (github: { query })
+  lastChecked: Date;                 // github sliding-window runtime state
 }
 
 export interface ResolvedConfig {
   rules: Rule[];
   allClear: { leds: LedId[]; notify: boolean } | null;
   repos: string[];
-}
-
-export interface RuleHit {
-  rule: Rule;
-  items: SearchItem[];
-}
-
-export interface PreparedNotification {
-  title: string;
-  message: string;
-  url: string;
-}
-
-export interface EngineDecision {
-  ledsOn: Set<LedId>;
-  notifications: PreparedNotification[];
-}
-
-export function evaluate(hits: RuleHit[], config: ResolvedConfig): EngineDecision {
-  const ledsOn = new Set<LedId>();
-  const notifications: PreparedNotification[] = [];
-  const seenUrls = new Set<string>();
-  let anyMatched = false;
-
-  for (const { rule, items } of hits) {
-    if (items.length === 0) continue;
-    anyMatched = true;
-    for (const led of rule.leds) ledsOn.add(led);
-    if (!rule.notify) continue;
-    for (const item of items) {
-      if (seenUrls.has(item.url)) continue;
-      seenUrls.add(item.url);
-      notifications.push({
-        title: rule.name,
-        message: `${item.repo}: ${item.title}`,
-        url: item.url,
-      });
-    }
-  }
-
-  if (!anyMatched && config.allClear) {
-    for (const led of config.allClear.leds) ledsOn.add(led);
-  }
-
-  return { ledsOn, notifications };
 }
 
 export interface ExpandContext {

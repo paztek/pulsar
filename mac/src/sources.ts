@@ -1,4 +1,22 @@
 import { LedId } from './types';
+import { Rule } from './engine';
+
+/** Context a pull source needs to expand its rules (currently GitHub-shaped). */
+export interface PollContext {
+  username: string;
+  repos: string[];
+}
+
+/**
+ * A pull source is evaluated on the poll timer: given the rules that target it,
+ * it returns the currently-active signals (or null if it backed off, e.g. a rate
+ * limit — the caller then keeps the previous state for this round).
+ */
+export interface PullSource {
+  readonly name: string;
+  readonly kind: 'pull';
+  poll(rules: Rule[], ctx: PollContext): Promise<Signal[] | null>;
+}
 
 /**
  * A single "thing that needs attention," produced by an event source. The Core

@@ -57,23 +57,37 @@ export function resolveRules(raw: unknown, source: string): ResolvedConfig {
   return { rules, allClear, repos };
 }
 
-function compileRule(rule: unknown, index: number, source: string): Rule {
-  const label = `${source}: rules[${index}]`;
+function compileRule(rule: unknown, index: number, srcLabel: string): Rule {
+  const label = `${srcLabel}: rules[${index}]`;
   if (!isObject(rule)) throw new Error(`${label} must be an object`);
 
-  const knownKeys = new Set(['name', 'query', 'leds', 'notify']);
+  const knownKeys = new Set(['name', 'source', 'query', 'leds', 'notify', 'params']);
   for (const key of Object.keys(rule)) {
     if (!knownKeys.has(key)) console.warn(`${label}: unknown key "${key}" — ignoring`);
   }
 
   const name = asString(rule.name, `${label}.name`);
   if (name.trim() === '') throw new Error(`${label}.name must be a non-empty string`);
-  const query = asString(rule.query, `${label}.query`);
-  if (query.trim() === '') throw new Error(`${label}.query must be a non-empty string`);
+  const source = rule.source === undefined ? 'github' : asString(rule.source, `${label}.source`);
   const leds = parseLeds(rule.leds, `${label}.leds`);
   const notify = rule.notify === undefined ? true : asBool(rule.notify, `${label}.notify`);
+  const params = compileParams(source, rule, label);
 
-  return { name, query, leds, notify, lastChecked: EPOCH };
+  return { name, source, leds, notify, params, lastChecked: EPOCH };
+}
+
+/** Validate/normalize a rule's source-specific params. */
+function compileParams(source: string, rule: Record<string, unknown>, label: string): Record<string, unknown> {
+  if (source === 'github') {
+    // Back-compat: accept a top-level `query` (old shape) or `params.query` (new).
+    const rawParams = isObject(rule.params) ? rule.params : {};
+    const raw = rule.query !== undefined ? rule.query : rawParams.query;
+    const query = asString(raw, `${label}.query`);
+    if (query.trim() === '') throw new Error(`${label}: github query must be a non-empty string`);
+    return { query };
+  }
+  // Unknown/other sources: pass params through; the source validates at use.
+  return isObject(rule.params) ? { ...rule.params } : {};
 }
 
 function parseLeds(raw: unknown, label: string): LedId[] {
