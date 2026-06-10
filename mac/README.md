@@ -1,165 +1,159 @@
-# Pulsar — macOS daemon
+# Pulsar — macOS app
 
-Node.js + TypeScript app that polls GitHub on a timer, drives the Arduino's
-LEDs over USB serial, and fires native macOS notifications.
+A macOS **menu bar app** (Electron) that watches GitHub (and other sources),
+reflects status on an Arduino's LEDs over USB serial, fires native
+notifications, and exposes a toggleable **MCP server** so agents can read status
+and raise their own signals.
 
-## Software architecture
+The same code also runs as a **headless standalone daemon** (no Electron) for a
+fast dev loop.
 
-```
-                           ┌─────────────────────────┐
-                           │       index.ts          │
-                           │   (main polling loop)   │
-                           └────────────┬────────────┘
-                                        │ tick() every N seconds
-                       ┌────────────────┼────────────────┐
-                       ▼                ▼                ▼
-              ┌────────────────┐ ┌─────────────┐ ┌────────────────┐
-              │  github.ts     │ │  serial.ts  │ │ notifications  │
-              │ GithubPoller   │ │  Arduino    │ │     .ts        │
-              │                │ │ Controller  │ │                │
-              └────────┬───────┘ └──────┬──────┘ └────────┬───────┘
-                       │                │                 │
-                       ▼                ▼                 ▼
-              ┌────────────────┐ ┌─────────────┐ ┌────────────────┐
-              │ @octokit/rest  │ │ serialport  │ │ node-notifier  │
-              │  (GitHub API)  │ │ (USB ⇄ MCU) │ │  (NSUserNotif) │
-              └────────────────┘ └──────┬──────┘ └────────┬───────┘
-                                        │                 │
-                                        ▼                 ▼
-                                 ┌─────────────┐   ┌─────────────┐
-                                 │  Arduino    │   │  Click →    │
-                                 │  (LEDs)     │   │  open URL   │
-                                 └─────────────┘   └─────────────┘
-```
+## Install & run
 
-Each `tick()`:
-
-1. `GithubPoller.poll()` fans out three concurrent GitHub Search API calls
-   (review requests, recent comments, failing builds) and returns a flat
-   list of events, each tagged with its kind, repo, author, title and URL.
-2. `evaluate(events, rules)` runs the user's `config.json` rules against
-   the events and decides which LEDs to light and which events to notify on.
-3. `ArduinoController.setLed()` writes `SET <id> <0|1>\n` over serial, but
-   only if the in-memory state for that LED actually changed (avoids
-   spamming the serial bus).
-4. For each notification-worthy event, `notify()` posts a macOS
-   notification with the PR URL captured in the click callback.
-
-On `SIGINT` the daemon turns all LEDs off and closes the serial port cleanly.
-
-## File map
-
-| File                  | Responsibility                                          |
-|-----------------------|---------------------------------------------------------|
-| `src/index.ts`        | Boot, polling loop, signal handling                     |
-| `src/config.ts`       | Reads `.env` and validates `config.json` rules          |
-| `src/engine.ts`       | Pure `evaluate(events, rules)` matcher                  |
-| `src/types.ts`        | `LedId` enum and shared interfaces                      |
-| `src/github.ts`       | `GithubPoller` — wraps the Octokit search API           |
-| `src/serial.ts`       | `ArduinoController` — `serialport` wrapper, state diff  |
-| `src/notifications.ts`| Thin wrapper around `node-notifier` with URL callback   |
-| `config.json`         | User-editable event → LED mapping rules                 |
-
-## Setup
+### As an app
 
 ```bash
-cp .env.example .env
-# Fill in:
-#   GITHUB_TOKEN     — a classic PAT with `repo` scope (only needed for GITHUB_POLLER=api)
-#   GITHUB_USERNAME  — your GitHub login
-#   SERIAL_PORT      — find it with: ls /dev/cu.*
-
-cp config.example.json config.json
-# Edit `repos` and `rules` to taste — see "Mapping rules" below.
-
 npm install
-npm run dev     # ts-node-dev with auto-reload
-# or:
-npm run build && npm start
+npm run dist        # builds release/Pulsar-<ver>-arm64.dmg (+ .zip)
 ```
+
+Open the dmg, drag **Pulsar** to Applications, and launch it. It lives in the
+menu bar (no Dock icon): the dot is green when all-clear, amber while connecting,
+red when the Arduino isn't found. Click it for the menu — **Open Pulsar…** opens
+the settings/status window.
+
+> The build is unsigned. On first launch right-click → Open, or run
+> `xattr -dr com.apple.quarantine /Applications/Pulsar.app`.
+
+### From source (dev)
+
+```bash
+npm install
+npm run app         # build + launch the Electron app
+npm run dev         # or the headless daemon (no UI), ts-node-dev auto-reload
+```
+
+Dev env flags for `npm run app`: `PULSAR_OPEN=1` (auto-open the window),
+`PULSAR_MCP=1` (start the MCP server), `PULSAR_TEST_PUSH=1` (demo push source).
+Other scripts: `npm run build`, `npm run pack` (unpacked `.app`, faster than
+`dist`), `npm run icons`, `npm run verify:serial`, `npm run verify:mcp`.
+
+> Only one instance can hold the serial port — don't run `npm run dev` and the
+> app at the same time.
 
 ## Configuration
 
-| Env var             | Default                  | Notes                              |
-|---------------------|--------------------------|------------------------------------|
-| `GITHUB_TOKEN`      | —                        | Required                           |
-| `GITHUB_USERNAME`   | —                        | Required                           |
-| `SERIAL_PORT`       | `/dev/cu.usbmodem14101`  | Match what `ls /dev/cu.*` shows   |
-| `POLL_INTERVAL_MS`  | `60000`                  | GitHub Search API is rate-limited |
-| `CONFIG_PATH`       | `config.json`            | Path to the rules file            |
+**In the app:** tray → **Open Pulsar…**. Set GitHub username, optional token,
+poller (`cli`/`api`), serial port (dropdown), poll interval, and the rules
+(JSON). Changes apply live. Settings persist in
+`~/Library/Application Support/Pulsar/settings.json` (token encrypted via the
+macOS Keychain); on first run they migrate from any existing `.env`/`config.json`.
 
-## Mapping rules — `config.json`
+**Standalone (`npm run dev`):** uses `.env` (copy `.env.example`) + `config.json`
+(copy `config.example.json`).
 
-Each rule is **a name, a GitHub Search query, and the LEDs to light** when
-the query returns one or more results. The rule's name is also used as
-the notification title (include an emoji to taste). One tick runs each
-rule's query in sequence; if any rule matches, its LEDs go on. Multiple
-rules can target the same LED — the LED is ON if any matching rule fires.
+| Setting | Notes |
+|---------|-------|
+| GitHub username | required |
+| GitHub token | only for the `api` poller; `cli` uses your `gh` login |
+| Poller | `cli` (shells out to `gh`) or `api` (Octokit + token) |
+| Serial port | find it with `ls /dev/cu.*` |
+| Poll interval | default 60s (GitHub Search is rate-limited) |
+
+## Rules
+
+A rule is **a name, a source, the LEDs to light, and source-specific params**.
+For the GitHub source the param is a Search query; the rule fires (its LEDs
+light) when the query returns ≥1 result. The rule name is the notification title.
 
 ```jsonc
 {
-  "repos": ["earnix/monorepo", "earnix/pulsar"],  // optional; injected via {{repos}}
+  "repos": ["your-org/your-repo"],            // optional; injected via {{repos}}
   "rules": [
     {
       "name": "🔴 Build failing",
-      "query": "is:pr is:open draft:false author:{{username}} status:failure {{repos}}",
+      "source": "github",                      // optional, defaults to "github"
       "leds": ["red"],
-      "notify": true                              // optional, default true
+      "notify": true,                          // optional, default true
+      "params": { "query": "is:pr is:open author:{{username}} status:failure {{repos}}" }
     },
     {
       "name": "👀 Review requested",
-      "query": "is:pr is:open draft:false review-requested:{{username}} {{repos}}",
-      "leds": ["yellow"]
-    },
-    {
-      "name": "💬 Activity on my PRs",
-      "query": "is:pr is:open draft:false author:{{username}} updated:>{{lastChecked}} {{repos}}",
-      "leds": ["blue"]
+      "leds": ["yellow"],
+      "params": { "query": "is:pr is:open review-requested:{{username}} {{repos}}" }
     }
   ],
   "allClear": { "leds": ["green"], "notify": false }
 }
 ```
 
-### Placeholders
+The older flat shape — `{ "name", "query", "leds" }` with `query` at the top
+level — is still accepted.
 
-Expanded at query time, on every tick:
+### Query placeholders (GitHub source)
 
-| Placeholder      | Value                                                         |
-|------------------|---------------------------------------------------------------|
-| `{{username}}`   | `GITHUB_USERNAME` from `.env`                                 |
-| `{{lastChecked}}`| ISO timestamp of the **last successful poll of this rule** (epoch on first run) |
-| `{{repos}}`      | `repo:a/b repo:c/d` expansion of top-level `repos` (empty if not set) |
-| `{{now}}`        | Current time as ISO timestamp                                 |
+| Placeholder | Value |
+|-------------|-------|
+| `{{username}}` | your GitHub login |
+| `{{repos}}` | `repo:a/b repo:c/d` from top-level `repos` (empty if unset) |
+| `{{lastChecked}}` | ISO time of this rule's last successful poll (epoch on first run) |
+| `{{now}}` | current time |
 
-`{{lastChecked}}` advances per-rule on each successful poll, so a rule's
-sliding window is independent — a rule that hit a rate limit catches up
-on the next successful poll.
+`{{lastChecked}}` advances per-rule on each successful poll (independent sliding
+windows). LED names: `red`, `yellow`, `blue`, `green`. `allClear.leds` light when
+nothing is active; omit it to leave everything off when quiet.
 
-### LEDs
+## MCP server
 
-Valid names: `red`, `yellow`, `blue`, `green`. `allClear.leds` lights
-when **no** rule matched any results on this tick. If `allClear` is
-omitted, nothing lights when everything is quiet.
+Toggle it from the tray (**MCP server: off → on**). It serves Streamable HTTP on
+`http://127.0.0.1:7332/mcp` (localhost only, no auth).
 
-### Failure behaviour
+- **Tools** — `raise_signal` / `clear_signal` / `list_signals` (semantic signals
+  that light LEDs and compose with GitHub; optional `ttl_seconds` auto-reverts),
+  plus `poll_now` / `set_led` / `blink` / `reload_config`.
+- **Resources** — `pulsar://status`, `pulsar://events`, `pulsar://config` (token
+  redacted).
 
-Missing file: built-in defaults (which replicate the shipped
-`config.json`) are used. Invalid file: the daemon fails to start with
-an error pointing at the offending rule.
+Claude Desktop only supports stdio servers in its config, so bridge to the
+HTTP endpoint with `mcp-remote`:
+
+```json
+{
+  "mcpServers": {
+    "pulsar": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:7332/mcp", "--allow-http"]
+    }
+  }
+}
+```
+
+(`--allow-http` is required for the plain-HTTP localhost endpoint. Restart Claude
+Desktop after editing, and make sure the MCP server is toggled on.)
+
+## Launch at login
+
+Toggle **Launch at login** in the tray (uses a macOS login item; meaningful from
+the installed `.app`).
 
 ## Serial protocol
 
-Plaintext, line-terminated. Currently one command:
+Plaintext, line-terminated — one command:
 
 ```
 SET <ledId:0-3> <state:0|1>\n   →   OK\n
 ```
 
-The Mac side keeps an in-memory mirror of LED state and skips redundant
-writes. The link is self-healing: the daemon connects even if the Arduino is
-plugged in after it starts, and reconnects on its own when the device is
-unplugged and plugged back in (retrying every few seconds). On each successful
-(re)connect it plays a confirmation blink (all LEDs on/off, twice), then — since
-opening the port resets the Arduino to all-off — re-applies the desired LED
-state. No restart needed.
+The board stays dumb; the Mac app does all the logic and scheduling. The link is
+self-healing: it connects even if the Arduino appears after startup, and
+reconnects on unplug/replug (a `SerialPort.list()` watchdog covers macOS not
+emitting a close event on unplug). On each (re)connect it plays a confirmation
+blink, then re-applies the desired LED state.
+
+## Architecture
+
+`Core` aggregates **signals** from a registry of **event sources** (GitHub as a
+pull source, MCP as a push source) into effective LED state, and is the single
+source of truth for the tray, the window, and MCP. For the source layout, the
+signal model, and internals see [`../CLAUDE.md`](../CLAUDE.md); design docs are in
+[`../docs/plans/`](../docs/plans/).
