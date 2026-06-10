@@ -5,7 +5,8 @@ import { notify } from './notifications';
 import { log } from './log';
 import { GithubClient, LedId, SearchItem } from './types';
 import { config, getActiveRules } from './config';
-import { evaluate, expandQuery, ledNameToId, ResolvedConfig, RuleHit } from './engine';
+import { expandQuery, ledNameToId, ResolvedConfig, RuleHit } from './engine';
+import { aggregate, Notification, Signal } from './sources';
 
 const ALL_LEDS: LedId[] = [LedId.RED, LedId.YELLOW, LedId.BLUE, LedId.GREEN];
 
@@ -217,27 +218,61 @@ export class Core extends EventEmitter {
         if (i < this.rules.rules.length - 1) await sleep(nextJitter());
       }
 
-      const { ledsOn, notifications } = evaluate(hits, this.rules);
-      log(`engine: LEDs on = [${[...ledsOn].map((id) => LedId[id]).join(', ') || 'none'}]; notifications = ${notifications.length}`);
-
-      await Promise.all(ALL_LEDS.map((id) => this.arduino.setLed(id, ledsOn.has(id))));
-
-      this.leds = {
-        red: ledsOn.has(LedId.RED),
-        yellow: ledsOn.has(LedId.YELLOW),
-        blue: ledsOn.has(LedId.BLUE),
-        green: ledsOn.has(LedId.GREEN),
-      };
-      this.lastTickAt = new Date().toISOString();
-      this.ruleHits = hits.map((h) => ({ rule: h.rule.name, items: h.items }));
-      this.emit('leds', { ...this.leds });
-      this.emit('tick', this.getSnapshot());
-
-      for (const n of notifications) {
-        notify(n.title, n.message, n.url);
-      }
+      const signals = githubSignals(hits);
+      const ruleHits = hits.map((h) => ({ rule: h.rule.name, items: h.items }));
+      await this.applyDecision(signals, ruleHits);
     } finally {
       this.ticking = false;
     }
   }
+
+  /**
+   * The single LED writer: aggregate signals → board state + notifications, write
+   * the changed LEDs, update the snapshot, and emit. Every path that changes the
+   * board goes through here (poll loop now; push sources / overrides later).
+   */
+  private async applyDecision(signals: Signal[], ruleHits: RuleHitSummary[]): Promise<void> {
+    const { ledsOn, notifications } = aggregate(signals, this.rules.allClear);
+    log(`engine: LEDs on = [${[...ledsOn].map((id) => LedId[id]).join(', ') || 'none'}]; notifications = ${notifications.length}`);
+
+    await Promise.all(ALL_LEDS.map((id) => this.arduino.setLed(id, ledsOn.has(id))));
+
+    this.leds = {
+      red: ledsOn.has(LedId.RED),
+      yellow: ledsOn.has(LedId.YELLOW),
+      blue: ledsOn.has(LedId.BLUE),
+      green: ledsOn.has(LedId.GREEN),
+    };
+    this.lastTickAt = new Date().toISOString();
+    this.ruleHits = ruleHits;
+    this.emit('leds', { ...this.leds });
+    this.emit('tick', this.getSnapshot());
+
+    this.fireNotifications(notifications);
+  }
+
+  private fireNotifications(notifications: Notification[]): void {
+    for (const n of notifications) notify(n.title, n.message, n.url);
+  }
+}
+
+/** Flatten GitHub rule hits into source-agnostic signals (one per matched item). */
+function githubSignals(hits: RuleHit[]): Signal[] {
+  const signals: Signal[] = [];
+  for (const { rule, items } of hits) {
+    for (const it of items) {
+      signals.push({
+        id: it.url,
+        source: 'github',
+        group: rule.name,
+        title: it.title,
+        url: it.url,
+        context: it.repo,
+        author: it.author,
+        leds: rule.leds,
+        notify: rule.notify,
+      });
+    }
+  }
+  return signals;
 }
