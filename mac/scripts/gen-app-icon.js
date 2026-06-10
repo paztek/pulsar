@@ -12,9 +12,8 @@ const fs = require('fs');
 const zlib = require('zlib');
 
 const CANVAS = 1024;
-const INNER = 824; // rounded square size within the canvas
-const MARGIN = (CANVAS - INNER) / 2; // 100px padding
-const RADIUS = 185; // corner radius (~22.4% of INNER, the macOS grid)
+const INNER = 824; // the rounded tile occupies this within the canvas
+const MARGIN = (CANVAS - INNER) / 2; // 100px padding (the macOS icon grid)
 
 // ---- PNG decode (8-bit, non-interlaced, RGB or RGBA) ----
 function paeth(a, b, c) {
@@ -108,6 +107,74 @@ function resize(src, sw, sh, dw, dh) {
   return out;
 }
 
+// ---- background removal + crop ----
+function lum(r, g, b) {
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+// Flood-fill near-white pixels reachable from the border → transparent, feathering
+// the anti-aliased edge. Interior light pixels (not connected to the border) are
+// left untouched.
+function removeBackground(rgba, w, h) {
+  const bg = new Uint8Array(w * h);
+  const stack = [];
+  const light = (i) => lum(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) >= 225;
+  const seed = (x, y) => { if (x >= 0 && y >= 0 && x < w && y < h) stack.push(y * w + x); };
+  for (let x = 0; x < w; x++) { seed(x, 0); seed(x, h - 1); }
+  for (let y = 0; y < h; y++) { seed(0, y); seed(w - 1, y); }
+
+  while (stack.length) {
+    const i = stack.pop();
+    if (bg[i] || !light(i)) continue;
+    bg[i] = 1;
+    const x = i % w, y = (i / w) | 0;
+    seed(x + 1, y); seed(x - 1, y); seed(x, y + 1); seed(x, y - 1);
+  }
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (bg[i]) { rgba[i * 4 + 3] = 0; continue; }
+      const L = lum(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+      if (L < 170) continue; // clearly foreground
+      // light pixel touching the background = an AA edge: feather it out
+      let edge = false;
+      for (let dy = -1; dy <= 1 && !edge; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && bg[ny * w + nx]) { edge = true; break; }
+        }
+      }
+      if (edge) {
+        const a = Math.round(255 * Math.max(0, Math.min(1, (255 - L) / 85)));
+        rgba[i * 4 + 3] = Math.min(rgba[i * 4 + 3], a);
+      }
+    }
+  }
+}
+
+// Crop to the bounding box of pixels with alpha above `threshold`.
+function cropToContent(rgba, w, h, threshold) {
+  let minx = w, miny = h, maxx = -1, maxy = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (rgba[(y * w + x) * 4 + 3] > threshold) {
+        if (x < minx) minx = x;
+        if (x > maxx) maxx = x;
+        if (y < miny) miny = y;
+        if (y > maxy) maxy = y;
+      }
+    }
+  }
+  if (maxx < 0) return { rgba, w, h };
+  const cw = maxx - minx + 1, ch = maxy - miny + 1;
+  const out = Buffer.alloc(cw * ch * 4);
+  for (let y = 0; y < ch; y++) {
+    rgba.copy(out, y * cw * 4, ((miny + y) * w + minx) * 4, ((miny + y) * w + minx) * 4 + cw * 4);
+  }
+  return { rgba: out, w: cw, h: ch };
+}
+
 // ---- PNG encode (RGBA) ----
 function crc32(buf) {
   let c = ~0;
@@ -150,27 +217,31 @@ if (!srcPath || !outPath) {
 }
 
 const src = decodePng(fs.readFileSync(srcPath));
-const inner = resize(src.rgba, src.width, src.height, INNER, INNER);
+
+// The source is already a rounded tile on a white background. Make that
+// background transparent (flood-fill from the borders so interior whites — the
+// center node, icons, dashed rings — are preserved), then crop to the tile and
+// re-pad to the macOS grid. No mask is added; the artwork's own shape is kept.
+removeBackground(src.rgba, src.width, src.height);
+const tile = cropToContent(src.rgba, src.width, src.height, 16);
+
+// Fit the tile into INNER (preserving aspect), centered on the canvas.
+const scale = INNER / Math.max(tile.w, tile.h);
+const tw = Math.round(tile.w * scale);
+const th = Math.round(tile.h * scale);
+const fitted = resize(tile.rgba, tile.w, tile.h, tw, th);
 
 const canvas = Buffer.alloc(CANVAS * CANVAS * 4); // transparent
-const half = INNER / 2;
-for (let y = 0; y < INNER; y++) {
-  for (let x = 0; x < INNER; x++) {
-    // rounded-rectangle signed distance for the squircle mask
-    const px = Math.abs(x + 0.5 - half) - (half - RADIUS);
-    const py = Math.abs(y + 0.5 - half) - (half - RADIUS);
-    const qx = Math.max(px, 0), qy = Math.max(py, 0);
-    const d = Math.hypot(qx, qy) - RADIUS;
-    let m = 0.5 - d; // ~1px anti-aliased edge
-    if (m < 0) m = 0;
-    else if (m > 1) m = 1;
-
-    const si = (y * INNER + x) * 4;
-    const di = ((y + MARGIN) * CANVAS + (x + MARGIN)) * 4;
-    canvas[di] = inner[si];
-    canvas[di + 1] = inner[si + 1];
-    canvas[di + 2] = inner[si + 2];
-    canvas[di + 3] = Math.round((inner[si + 3] / 255) * m * 255);
+const offX = MARGIN + ((INNER - tw) >> 1);
+const offY = MARGIN + ((INNER - th) >> 1);
+for (let y = 0; y < th; y++) {
+  for (let x = 0; x < tw; x++) {
+    const si = (y * tw + x) * 4;
+    const di = ((y + offY) * CANVAS + (x + offX)) * 4;
+    canvas[di] = fitted[si];
+    canvas[di + 1] = fitted[si + 1];
+    canvas[di + 2] = fitted[si + 2];
+    canvas[di + 3] = fitted[si + 3];
   }
 }
 
@@ -188,8 +259,8 @@ if (outPath.endsWith('.icns')) {
   }
   cp.execFileSync('iconutil', ['-c', 'icns', iconset, '-o', outPath]);
   fs.rmSync(work, { recursive: true, force: true });
-  console.log(`wrote ${outPath} (squircle, ${MARGIN}px padding, r=${RADIUS})`);
+  console.log(`wrote ${outPath} (transparent background, ${MARGIN}px padding)`);
 } else {
   fs.writeFileSync(outPath, encodePng(CANVAS, CANVAS, canvas));
-  console.log(`wrote ${outPath} (${CANVAS}x${CANVAS} squircle master)`);
+  console.log(`wrote ${outPath} (${CANVAS}x${CANVAS} master)`);
 }
